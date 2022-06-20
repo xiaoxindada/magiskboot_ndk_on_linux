@@ -1,0 +1,7 @@
+/obj
+/libs
+/out
+/Magisk
+/ndk
+*.zip
+*.gz
