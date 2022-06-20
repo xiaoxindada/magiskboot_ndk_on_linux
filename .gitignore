@@ -5,3 +5,4 @@
 /ndk
 *.zip
 *.gz
+jni/include/generated

@@ -12,7 +12,6 @@ update_code() {
   git clone --recurse-submodules https://github.com/topjohnwu/Magisk.git Magisk
   [ $? != 0 ] && echo "GitHub network timeout" && exit 1
   cp -af Magisk/native/jni jni
-  cp -af Magisk/native/out/generated/* jni/include
   rm -rf Magisk
   if [ -d jni ]; then
     echo "Upstream code update success, see log: https://github.com/topjohnwu/Magisk/tree/master/native"
@@ -58,6 +57,14 @@ setup_ndk() {
   done
 }
 
+patch_source() {
+  local modify_file=$(grep -ril "out/generated" jni | head -n 1)
+  [ -n "$modify_file" ] && sed -i 's|out/generated|jni/include/generated|g' $modify_file
+  rm -rf jni/include/generated
+  mkdir -p jni/include/generated
+  cp -af generated/* jni/include/generated/
+}
+
 copy_output() {
   cp -af libs/* out/
 }
@@ -65,6 +72,10 @@ copy_output() {
 build() {
   rm -rf obj libs out
   mkdir -p out
+  
+  echo "patching source code ..."
+  patch_source
+
   export NDK=${LOCALDIR}/ndk
   export PATH=${NDK}:${PATH}
   if [ $DEBUG = true ]; then
