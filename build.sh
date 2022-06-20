@@ -11,6 +11,14 @@ update_code() {
   rm -rf jni Magisk
   git clone --recurse-submodules https://github.com/topjohnwu/Magisk.git Magisk
   [ $? != 0 ] && echo "GitHub network timeout" && exit 1
+
+  # Create magisk config file
+  local read_magisk_config_line=4
+  local magisk_version=$(cd Magisk && git rev-parse --short=8 HEAD && cd $LOCALDIR)
+  tail -n $read_magisk_config_line <Magisk/gradle.properties >magisk_config.prop
+  sed -i "s|magisk.ondkVersion=.*|magisk.ondkVersion=${ONDK_VERSION}|" magisk_config.prop
+  echo "magisk.version=$magisk_version" >>magisk_config.prop
+
   cp -af Magisk/native/jni jni
   rm -rf Magisk
   if [ -d jni ]; then
@@ -59,6 +67,22 @@ setup_ndk() {
 
 patch_source() {
   local modify_file=$(grep -ril "out/generated" jni | head -n 1)
+  local magisk_versionCode=$(cat magisk_config.prop | grep "magisk.versionCode=" | cut -d "=" -f 2 | head -n 1)
+  local magisk_version=$(cat magisk_config.prop | grep "magisk.version=" | cut -d "=" -f 2 | head -n 1)
+
+  # Create flags.h
+  rm -rf "generated/flags.h"
+  cat >>"generated/flags.h" <<EOF
+#pragma once
+#define quote(s)            #s
+#define str(s)              quote(s)
+#define MAGISK_FULL_VER     MAGISK_VERSION "(" str(MAGISK_VER_CODE) ")"
+#define NAME_WITH_VER(name) str(name) " " MAGISK_FULL_VER
+#define MAGISK_VERSION      "$magisk_version"
+#define MAGISK_VER_CODE     $magisk_versionCode
+#define MAGISK_DEBUG        0
+EOF
+
   [ -n "$modify_file" ] && sed -i 's|out/generated|jni/include/generated|g' $modify_file
   rm -rf jni/include/generated
   mkdir -p jni/include/generated
@@ -72,7 +96,7 @@ copy_output() {
 build() {
   rm -rf obj libs out
   mkdir -p out
-  
+
   echo "patching source code ..."
   patch_source
 
@@ -124,6 +148,7 @@ fi
 
 build
 if [ $? = 0 ]; then
+  magisk_versionCode=$(cat magisk_config.prop | grep "magisk.versionCode=" | cut -d "=" -f 2 | head -n 1)
   echo "Output: $LOCALDIR/out"
   echo "magisk.versionCode=$magisk_versionCode" >$LOCALDIR/out/magisk_version.txt
   exit 0
