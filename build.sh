@@ -22,6 +22,9 @@ update_code() {
   cp -af Magisk/native/jni jni
   rm -rf Magisk
   if [ -d jni ]; then
+    # Fix busybox git push missing header file
+    [ -f "jni/external/busybox/include/.gitignore" ] && rm -rf "jni/external/busybox/include/.gitignore"
+
     echo "Upstream code update success, see log: https://github.com/topjohnwu/Magisk/tree/master/native"
   else
     echo "Upstream code update failed"
