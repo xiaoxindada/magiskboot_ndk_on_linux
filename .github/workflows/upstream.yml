@@ -3,12 +3,18 @@
 name: update_upstream
 
 on:
+  push:
+    paths:
+      - ".github/workflows/upstream.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/upstream.yml"
   workflow_dispatch:
   schedule:
-    - cron: "30 16 * * *"
+    - cron: "0 0 * * *"
 
 jobs:
-  build:
+  update_upstream:
     runs-on: ubuntu-latest
 
     steps:
@@ -17,27 +23,27 @@ jobs:
       - name: Setup environment
         run: |
           sudo apt-get install -y git wget curl zip unzip ssh
-          
+
       - name: Clone repo
         run: |
-          git config --global user.email "2245062854@qq.com"
-          git config --global user.name "xiaoxindada"
-          ssh-keygen -t rsa -C "2245062854@qq.com"
-          exit 1
-          git clone --recurse-submodulesgit@github.com:xiaoxindada/magiskboot_ndk_on_linux.git magiskboot
-          
-      - name: update source and push
+          git clone --recurse-submodules https://github.com/xiaoxindada/magiskboot_ndk_on_linux.git magiskboot
+
+      - name: Update source
         run: |
           cd $GITHUB_WORKSPACE/magiskboot
           sudo ./build.sh update_code
-          echo "::set-output name=status::succes"
-     
-      - name: push
-        if: steps.organize.outputs.status == 'success' && !cancelled()
+
+      - name: Create commit and push
         run: |
-          ssh -T git@github.com
-          echo "UPDATE_TIME=$(date +%s)" >> $GITHUB_ENV
+          cd $GITHUB_WORKSPACE/magiskboot
+          UPDATE_ETC_UTC_TIME=$(date +%Y-%m-%d-%H:%M)  # Etc/UTC timezone
+          sudo timedatectl set-timezone 'Asia/Shanghai'
+          UPDATE_SHANGHAI_TIME=$(date +%Y-%m-%d-%H:%M)
+          git config --global user.email "2245062854@qq.com"
+          git config --global user.name "xiaoxindada"
           git add .
-          git commit -sm "Sync upstream code date:${{ env.UPDATE_TIME }}"
-          
-          
+          git commit -sm "Update code date: Asia/Shanghai: $UPDATE_SHANGHAI_TIME
+          > Etc/UTC: $UPDATE_ETC_UTC_TIME"
+          git remote rm origin
+          git remote add origin https://xiaoxindada:${{ secrets.GITHUB_TOKEN }}@github.com/xiaoxindada/magiskboot_ndk_on_linux.git
+          git push origin main
