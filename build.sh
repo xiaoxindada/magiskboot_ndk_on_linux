@@ -95,10 +95,12 @@ copy_output() {
 build() {
   rm -rf out jni/{obj,bin,libs}
   mkdir -p out
-  
-  echo "patch_flags_h ..."
-  patch_flags_h
+  cp Makefile jni/Makefile
 
+  echo "regen_flags_h ..."
+  regen_flags_h
+
+  make -C jni
   if [ $? = 0 ]; then
     copy_output
   else
@@ -110,7 +112,7 @@ build() {
 
 apply_patches() {
   for p in patches/public/*; do
-    if ! git am -3 <$p; then
+    if ! git am -3 --rerere-autoupdate <$p; then
       patch -p1 <$p
     fi
   done

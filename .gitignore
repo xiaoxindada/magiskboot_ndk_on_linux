@@ -1,5 +1,6 @@
 jni/bin
 jni/libs
+jni/Makefile
 jni/*.exe
 jni/*.dll
 /out
