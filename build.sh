@@ -2,10 +2,6 @@
 LOCALDIR=$(cd "$(dirname ${BASH_SOURCE[0]})" && pwd)
 
 DEBUG=false
-ONDK_VERSION="r24.1"
-ONDK_URL="https://github.com/topjohnwu/ondk/releases/download/$ONDK_VERSION/ondk-$ONDK_VERSION-linux.tar.gz"
-ARCHIVE_NAME=${ONDK_URL##*/}
-NDK_DIR="ondk-$ONDK_VERSION"
 
 update_code() {
   rm -rf jni Magisk
@@ -68,7 +64,7 @@ setup_ndk() {
   done
 }
 
-patch_source() {
+regen_flags_h() {
   local modify_file=$(grep -ril "out/generated" jni | head -n 1)
   local magisk_versionCode=$(cat magisk_config.prop | grep "magisk.versionCode=" | cut -d "=" -f 2 | head -n 1)
   local magisk_version=$(cat magisk_config.prop | grep "magisk.version=" | cut -d "=" -f 2 | head -n 1)
@@ -93,31 +89,16 @@ EOF
 }
 
 copy_output() {
-  cp -af libs/* out/
+  cp -af jni/bin/* out/
 }
 
 build() {
-  rm -rf obj libs out
+  rm -rf out jni/{obj,bin,libs}
   mkdir -p out
+  
+  echo "patch_flags_h ..."
+  patch_flags_h
 
-  echo "patching source code ..."
-  patch_source
-
-  export NDK=${LOCALDIR}/ndk
-  export PATH=${NDK}:${PATH}
-  if [ $DEBUG = true ]; then
-    echo "debug"
-    ndk-build "B_BB=1"
-    ndk-build "B_BOOT=1" "B_POLICY=1"
-    exit 0
-  fi
-  ndk-build "B_BB=1" -j$(nproc --all)
-  if [ $? = 0 ]; then
-    copy_output
-  else
-    return 1
-  fi
-  ndk-build "B_BOOT=1" "B_POLICY=1" -j$(nproc --all)
   if [ $? = 0 ]; then
     copy_output
   else
@@ -145,9 +126,7 @@ if echo $@ | grep -q "update_code"; then
   exit 0
 fi
 
-if echo $@ | grep -q "setup"; then
-  setup_ndk
-fi
+
 
 build
 if [ $? = 0 ]; then

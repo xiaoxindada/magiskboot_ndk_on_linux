@@ -1,8 +1,8 @@
-/obj
-/libs
+jni/bin
+jni/libs
+jni/*.exe
+jni/*.dll
 /out
 /Magisk
-/ndk
 *.zip
 *.gz
-jni/include/generated
