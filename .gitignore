@@ -5,4 +5,5 @@
 /ndk
 *.zip
 *.gz
-jni/include/generated
+jni/prebuilt_libs/
+
