@@ -2,7 +2,7 @@
 LOCALDIR=$(cd "$(dirname ${BASH_SOURCE[0]})" && pwd)
 
 DEBUG=false
-ONDK_VERSION="r24.1"
+ONDK_VERSION="r24.2"
 ONDK_URL="https://github.com/topjohnwu/ondk/releases/download/$ONDK_VERSION/ondk-$ONDK_VERSION-linux.tar.gz"
 ARCHIVE_NAME=${ONDK_URL##*/}
 NDK_DIR="ondk-$ONDK_VERSION"
@@ -19,11 +19,23 @@ update_code() {
   sed -i "s|magisk.ondkVersion=.*|magisk.ondkVersion=${ONDK_VERSION}|" magisk_config.prop
   echo "magisk.version=$magisk_version" >>magisk_config.prop
 
-  cp -af Magisk/native/jni jni
+  rm -rf jni rust
+  mv Magisk/native/jni/ jni/
+  mv Magisk/native/rust/ rust/
   rm -rf Magisk
-  if [ -d jni ]; then
+  if [[ -d jni && -d rust ]]; then
     # Fix busybox git push missing header file
     [ -f "jni/external/busybox/include/.gitignore" ] && rm -rf "jni/external/busybox/include/.gitignore"
+    # Generate magisk dynamic resources
+    python3 gen_config.py "dump_flags_header"
+    python3 gen_config.py "dump_rust_header"
+
+    # Fix path defined
+    sed -i 's|out/generated|jni/include/generated|g' jni/base/Android.mk
+    sed -i 's|\.\./out/\$(TARGET_ARCH_ABI)|\.\./jni/prebuilt_libs/\$(TARGET_ARCH_ABI)|g' jni/Android-rs.mk # prebuilt_libs
+    rm -rf jni/include/generated
+    mkdir -p jni/include/generated
+    cp -af generated/* jni/include/generated/
 
     echo "Upstream code update success, see log: https://github.com/topjohnwu/Magisk/tree/master/native"
   else
@@ -68,30 +80,6 @@ setup_ndk() {
   done
 }
 
-patch_source() {
-  local modify_file=$(grep -ril "out/generated" jni | head -n 1)
-  local magisk_versionCode=$(cat magisk_config.prop | grep "magisk.versionCode=" | cut -d "=" -f 2 | head -n 1)
-  local magisk_version=$(cat magisk_config.prop | grep "magisk.version=" | cut -d "=" -f 2 | head -n 1)
-
-  # Create flags.h
-  rm -rf "generated/flags.h"
-  cat >>"generated/flags.h" <<EOF
-#pragma once
-#define quote(s)            #s
-#define str(s)              quote(s)
-#define MAGISK_FULL_VER     MAGISK_VERSION "(" str(MAGISK_VER_CODE) ")"
-#define NAME_WITH_VER(name) str(name) " " MAGISK_FULL_VER
-#define MAGISK_VERSION      "$magisk_version"
-#define MAGISK_VER_CODE     $magisk_versionCode
-#define MAGISK_DEBUG        0
-EOF
-
-  [ -n "$modify_file" ] && sed -i 's|out/generated|jni/include/generated|g' $modify_file
-  rm -rf jni/include/generated
-  mkdir -p jni/include/generated
-  cp -af generated/* jni/include/generated/
-}
-
 copy_output() {
   cp -af libs/* out/
 }
@@ -100,11 +88,13 @@ build() {
   rm -rf obj libs out
   mkdir -p out
 
-  echo "patching source code ..."
-  patch_source
-
   export NDK=${LOCALDIR}/ndk
   export PATH=${NDK}:${PATH}
+  
+  # prebuilt libs
+  # sed -i 's|\.\./out/\$(TARGET_ARCH_ABI)|\.\./jni/prebuilt_libs/\$(TARGET_ARCH_ABI)|g' jni/Android-rs.mk
+  python3 gen_config.py "gen_prebuilt_rust_libs"
+
   if [ $DEBUG = true ]; then
     echo "debug"
     ndk-build "B_BB=1"
