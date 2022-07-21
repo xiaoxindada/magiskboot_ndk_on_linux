@@ -2,7 +2,8 @@
 LOCALDIR=$(cd "$(dirname ${BASH_SOURCE[0]})" && pwd)
 
 DEBUG=false
-ONDK_VERSION="r24.2"
+
+ONDK_VERSION=$(cat magisk_config.prop | grep "magisk.ondkVersion="| head -n 1 | cut -d "=" -f 2)
 ONDK_URL="https://github.com/topjohnwu/ondk/releases/download/$ONDK_VERSION/ondk-$ONDK_VERSION-linux.tar.gz"
 ARCHIVE_NAME=${ONDK_URL##*/}
 NDK_DIR="ondk-$ONDK_VERSION"
@@ -16,7 +17,6 @@ update_code() {
   local read_magisk_config_line=4
   local magisk_version=$(cd Magisk && git rev-parse --short=8 HEAD && cd $LOCALDIR)
   tail -n $read_magisk_config_line <Magisk/gradle.properties >magisk_config.prop
-  sed -i "s|magisk.ondkVersion=.*|magisk.ondkVersion=${ONDK_VERSION}|" magisk_config.prop
   echo "magisk.version=$magisk_version" >>magisk_config.prop
 
   rm -rf jni rust
