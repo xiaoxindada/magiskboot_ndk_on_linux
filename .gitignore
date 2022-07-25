@@ -1,8 +1,8 @@
-jni/bin
-jni/libs
-jni/Makefile
-jni/*.exe
-jni/*.dll
+src/bin
+src/libs
+src/Makefile
+src/*.exe
+src/*.dll
 /out
 /Magisk
 *.zip

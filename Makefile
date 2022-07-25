@@ -9,215 +9,215 @@ override CFLAGS :=  $(CFLAGS) -Wall -Oz -static
 override CXXFLAGS := $(CXXFLAGS) -std=c++2a -stdlib=libc++ -static
 override LDFLAGS := $(LDFLAGS) -flto -lpthread -lrt -lz -static
 override STRIPFLAGS := $(STRIPFLAGS) --strip-all
-override INCLUDES := $(INCLUDES) -Iinclude \
-    -Iexternal/dtc/libfdt \
-    -Iexternal/mincrypt/include \
-    -Ibase/include \
-    -Iexternal/zopfli/src \
-    -Iexternal/zlib \
-    -Iexternal/bzip2 \
-    -Iexternal/xz/src/liblzma/api \
-    -Iexternal/lz4/lib
+override INCLUDES := $(INCLUDES) -Isrc/include \
+    -Isrc/external/dtc/libfdt \
+    -Isrc/external/mincrypt/include \
+    -Isrc/base/include \
+    -Isrc/external/zopfli/src \
+    -Isrc/external/zlib \
+    -Isrc/external/bzip2 \
+    -Isrc/external/xz/src/liblzma/api \
+    -Isrc/external/lz4/lib
 
 .PHONY: all
 
 all: clean bin/magiskboot.exe bin/cygwin1.dll
 
 LIBMAGISKBOOT_SRC = \
-    boot/bootimg.cpp \
-    boot/hexpatch.cpp \
-    boot/compress.cpp \
-    boot/format.cpp \
-    boot/dtb.cpp \
-    boot/ramdisk.cpp \
-    boot/pattern.cpp \
-    boot/cpio.cpp
+    src/boot/bootimg.cpp \
+    src/boot/hexpatch.cpp \
+    src/boot/compress.cpp \
+    src/boot/format.cpp \
+    src/boot/dtb.cpp \
+    src/boot/ramdisk.cpp \
+    src/boot/pattern.cpp \
+    src/boot/cpio.cpp
 LIBMAGISKBOOT_OBJ := $(patsubst %.cpp,obj/%.o,$(LIBMAGISKBOOT_SRC))
 
-MAGISKBOOT_SRC = boot/main.cpp
+MAGISKBOOT_SRC = src/boot/main.cpp
 MAGISKBOOT_OBJ := $(patsubst %.cpp,obj/%.o,$(MAGISKBOOT_SRC))
 
 LIBBASE_SRC = \
-    base/new.cpp \
-    base/files.cpp \
-    base/misc.cpp \
-    base/selinux.cpp \
-    base/logging.cpp \
-    base/xwrap.cpp \
-    base/stream.cpp
+    src/base/new.cpp \
+    src/base/files.cpp \
+    src/base/misc.cpp \
+    src/base/selinux.cpp \
+    src/base/logging.cpp \
+    src/base/xwrap.cpp \
+    src/base/stream.cpp
 LIBBASE_OBJ := $(patsubst %.cpp,obj/%.o,$(LIBBASE_SRC))
 
-LIBCOMPAT_SRC = base/compat/compat.cpp
+LIBCOMPAT_SRC = src/base/compat/compat.cpp
 LIBCOMPAT_OBJ := $(patsubst %.cpp,obj/%.o,$(LIBCOMPAT_SRC))
 
 LIBMINCRYPT_SRC = \
-    external/mincrypt/dsa_sig.c \
-	external/mincrypt/p256.c \
-	external/mincrypt/p256_ec.c \
-	external/mincrypt/p256_ecdsa.c \
-	external/mincrypt/rsa.c \
-	external/mincrypt/sha.c \
-	external/mincrypt/sha256.c
+    src/external/mincrypt/dsa_sig.c \
+	src/external/mincrypt/p256.c \
+	src/external/mincrypt/p256_ec.c \
+	src/external/mincrypt/p256_ecdsa.c \
+	src/external/mincrypt/rsa.c \
+	src/external/mincrypt/sha.c \
+	src/external/mincrypt/sha256.c
 LIBMINCRYPT_OBJ = $(patsubst %.c,obj/%.o,$(LIBMINCRYPT_SRC))
 
 LIBLZMA_SRC = \
-    external/xz/src/common/tuklib_cpucores.c \
-    external/xz/src/common/tuklib_exit.c \
-    external/xz/src/common/tuklib_mbstr_fw.c \
-    external/xz/src/common/tuklib_mbstr_width.c \
-    external/xz/src/common/tuklib_open_stdxxx.c \
-    external/xz/src/common/tuklib_physmem.c \
-    external/xz/src/common/tuklib_progname.c \
-    external/xz/src/liblzma/check/check.c \
-    external/xz/src/liblzma/check/crc32_fast.c \
-    external/xz/src/liblzma/check/crc32_table.c \
-    external/xz/src/liblzma/check/crc64_fast.c \
-    external/xz/src/liblzma/check/crc64_table.c \
-    external/xz/src/liblzma/check/sha256.c \
-    external/xz/src/liblzma/common/alone_decoder.c \
-    external/xz/src/liblzma/common/alone_encoder.c \
-    external/xz/src/liblzma/common/auto_decoder.c \
-    external/xz/src/liblzma/common/block_buffer_decoder.c \
-    external/xz/src/liblzma/common/block_buffer_encoder.c \
-    external/xz/src/liblzma/common/block_decoder.c \
-    external/xz/src/liblzma/common/block_encoder.c \
-    external/xz/src/liblzma/common/block_header_decoder.c \
-    external/xz/src/liblzma/common/block_header_encoder.c \
-    external/xz/src/liblzma/common/block_util.c \
-    external/xz/src/liblzma/common/common.c \
-    external/xz/src/liblzma/common/easy_buffer_encoder.c \
-    external/xz/src/liblzma/common/easy_decoder_memusage.c \
-    external/xz/src/liblzma/common/easy_encoder.c \
-    external/xz/src/liblzma/common/easy_encoder_memusage.c \
-    external/xz/src/liblzma/common/easy_preset.c \
-    external/xz/src/liblzma/common/filter_buffer_decoder.c \
-    external/xz/src/liblzma/common/filter_buffer_encoder.c \
-    external/xz/src/liblzma/common/filter_common.c \
-    external/xz/src/liblzma/common/filter_decoder.c \
-    external/xz/src/liblzma/common/filter_encoder.c \
-    external/xz/src/liblzma/common/filter_flags_decoder.c \
-    external/xz/src/liblzma/common/filter_flags_encoder.c \
-    external/xz/src/liblzma/common/hardware_cputhreads.c \
-    external/xz/src/liblzma/common/hardware_physmem.c \
-    external/xz/src/liblzma/common/index.c \
-    external/xz/src/liblzma/common/index_decoder.c \
-    external/xz/src/liblzma/common/index_encoder.c \
-    external/xz/src/liblzma/common/index_hash.c \
-    external/xz/src/liblzma/common/outqueue.c \
-    external/xz/src/liblzma/common/stream_buffer_decoder.c \
-    external/xz/src/liblzma/common/stream_buffer_encoder.c \
-    external/xz/src/liblzma/common/stream_decoder.c \
-    external/xz/src/liblzma/common/stream_encoder.c \
-    external/xz/src/liblzma/common/stream_encoder_mt.c \
-    external/xz/src/liblzma/common/stream_flags_common.c \
-    external/xz/src/liblzma/common/stream_flags_decoder.c \
-    external/xz/src/liblzma/common/stream_flags_encoder.c \
-    external/xz/src/liblzma/common/vli_decoder.c \
-    external/xz/src/liblzma/common/vli_encoder.c \
-    external/xz/src/liblzma/common/vli_size.c \
-    external/xz/src/liblzma/delta/delta_common.c \
-    external/xz/src/liblzma/delta/delta_decoder.c \
-    external/xz/src/liblzma/delta/delta_encoder.c \
-    external/xz/src/liblzma/lz/lz_decoder.c \
-    external/xz/src/liblzma/lz/lz_encoder.c \
-    external/xz/src/liblzma/lz/lz_encoder_mf.c \
-    external/xz/src/liblzma/lzma/fastpos_table.c \
-    external/xz/src/liblzma/lzma/fastpos_tablegen.c \
-    external/xz/src/liblzma/lzma/lzma2_decoder.c \
-    external/xz/src/liblzma/lzma/lzma2_encoder.c \
-    external/xz/src/liblzma/lzma/lzma_decoder.c \
-    external/xz/src/liblzma/lzma/lzma_encoder.c \
-    external/xz/src/liblzma/lzma/lzma_encoder_optimum_fast.c \
-    external/xz/src/liblzma/lzma/lzma_encoder_optimum_normal.c \
-    external/xz/src/liblzma/lzma/lzma_encoder_presets.c \
-    external/xz/src/liblzma/rangecoder/price_table.c \
-    external/xz/src/liblzma/rangecoder/price_tablegen.c \
-    external/xz/src/liblzma/simple/arm.c \
-    external/xz/src/liblzma/simple/armthumb.c \
-    external/xz/src/liblzma/simple/ia64.c \
-    external/xz/src/liblzma/simple/powerpc.c \
-    external/xz/src/liblzma/simple/simple_coder.c \
-    external/xz/src/liblzma/simple/simple_decoder.c \
-    external/xz/src/liblzma/simple/simple_encoder.c \
-    external/xz/src/liblzma/simple/sparc.c \
-    external/xz/src/liblzma/simple/x86.c
+    src/external/xz/src/common/tuklib_cpucores.c \
+    src/external/xz/src/common/tuklib_exit.c \
+    src/external/xz/src/common/tuklib_mbstr_fw.c \
+    src/external/xz/src/common/tuklib_mbstr_width.c \
+    src/external/xz/src/common/tuklib_open_stdxxx.c \
+    src/external/xz/src/common/tuklib_physmem.c \
+    src/external/xz/src/common/tuklib_progname.c \
+    src/external/xz/src/liblzma/check/check.c \
+    src/external/xz/src/liblzma/check/crc32_fast.c \
+    src/external/xz/src/liblzma/check/crc32_table.c \
+    src/external/xz/src/liblzma/check/crc64_fast.c \
+    src/external/xz/src/liblzma/check/crc64_table.c \
+    src/external/xz/src/liblzma/check/sha256.c \
+    src/external/xz/src/liblzma/common/alone_decoder.c \
+    src/external/xz/src/liblzma/common/alone_encoder.c \
+    src/external/xz/src/liblzma/common/auto_decoder.c \
+    src/external/xz/src/liblzma/common/block_buffer_decoder.c \
+    src/external/xz/src/liblzma/common/block_buffer_encoder.c \
+    src/external/xz/src/liblzma/common/block_decoder.c \
+    src/external/xz/src/liblzma/common/block_encoder.c \
+    src/external/xz/src/liblzma/common/block_header_decoder.c \
+    src/external/xz/src/liblzma/common/block_header_encoder.c \
+    src/external/xz/src/liblzma/common/block_util.c \
+    src/external/xz/src/liblzma/common/common.c \
+    src/external/xz/src/liblzma/common/easy_buffer_encoder.c \
+    src/external/xz/src/liblzma/common/easy_decoder_memusage.c \
+    src/external/xz/src/liblzma/common/easy_encoder.c \
+    src/external/xz/src/liblzma/common/easy_encoder_memusage.c \
+    src/external/xz/src/liblzma/common/easy_preset.c \
+    src/external/xz/src/liblzma/common/filter_buffer_decoder.c \
+    src/external/xz/src/liblzma/common/filter_buffer_encoder.c \
+    src/external/xz/src/liblzma/common/filter_common.c \
+    src/external/xz/src/liblzma/common/filter_decoder.c \
+    src/external/xz/src/liblzma/common/filter_encoder.c \
+    src/external/xz/src/liblzma/common/filter_flags_decoder.c \
+    src/external/xz/src/liblzma/common/filter_flags_encoder.c \
+    src/external/xz/src/liblzma/common/hardware_cputhreads.c \
+    src/external/xz/src/liblzma/common/hardware_physmem.c \
+    src/external/xz/src/liblzma/common/index.c \
+    src/external/xz/src/liblzma/common/index_decoder.c \
+    src/external/xz/src/liblzma/common/index_encoder.c \
+    src/external/xz/src/liblzma/common/index_hash.c \
+    src/external/xz/src/liblzma/common/outqueue.c \
+    src/external/xz/src/liblzma/common/stream_buffer_decoder.c \
+    src/external/xz/src/liblzma/common/stream_buffer_encoder.c \
+    src/external/xz/src/liblzma/common/stream_decoder.c \
+    src/external/xz/src/liblzma/common/stream_encoder.c \
+    src/external/xz/src/liblzma/common/stream_encoder_mt.c \
+    src/external/xz/src/liblzma/common/stream_flags_common.c \
+    src/external/xz/src/liblzma/common/stream_flags_decoder.c \
+    src/external/xz/src/liblzma/common/stream_flags_encoder.c \
+    src/external/xz/src/liblzma/common/vli_decoder.c \
+    src/external/xz/src/liblzma/common/vli_encoder.c \
+    src/external/xz/src/liblzma/common/vli_size.c \
+    src/external/xz/src/liblzma/delta/delta_common.c \
+    src/external/xz/src/liblzma/delta/delta_decoder.c \
+    src/external/xz/src/liblzma/delta/delta_encoder.c \
+    src/external/xz/src/liblzma/lz/lz_decoder.c \
+    src/external/xz/src/liblzma/lz/lz_encoder.c \
+    src/external/xz/src/liblzma/lz/lz_encoder_mf.c \
+    src/external/xz/src/liblzma/lzma/fastpos_table.c \
+    src/external/xz/src/liblzma/lzma/fastpos_tablegen.c \
+    src/external/xz/src/liblzma/lzma/lzma2_decoder.c \
+    src/external/xz/src/liblzma/lzma/lzma2_encoder.c \
+    src/external/xz/src/liblzma/lzma/lzma_decoder.c \
+    src/external/xz/src/liblzma/lzma/lzma_encoder.c \
+    src/external/xz/src/liblzma/lzma/lzma_encoder_optimum_fast.c \
+    src/external/xz/src/liblzma/lzma/lzma_encoder_optimum_normal.c \
+    src/external/xz/src/liblzma/lzma/lzma_encoder_presets.c \
+    src/external/xz/src/liblzma/rangecoder/price_table.c \
+    src/external/xz/src/liblzma/rangecoder/price_tablegen.c \
+    src/external/xz/src/liblzma/simple/arm.c \
+    src/external/xz/src/liblzma/simple/armthumb.c \
+    src/external/xz/src/liblzma/simple/ia64.c \
+    src/external/xz/src/liblzma/simple/powerpc.c \
+    src/external/xz/src/liblzma/simple/simple_coder.c \
+    src/external/xz/src/liblzma/simple/simple_decoder.c \
+    src/external/xz/src/liblzma/simple/simple_encoder.c \
+    src/external/xz/src/liblzma/simple/sparc.c \
+    src/external/xz/src/liblzma/simple/x86.c
 
 LIBLZMA_INCLUDES = \
-    -Iexternal/xz_config \
-    -Iexternal/xz/src/common \
-    -Iexternal/xz/src/liblzma/api \
-    -Iexternal/xz/src/liblzma/check \
-    -Iexternal/xz/src/liblzma/common \
-    -Iexternal/xz/src/liblzma/delta \
-    -Iexternal/xz/src/liblzma/lz \
-    -Iexternal/xz/src/liblzma/lzma \
-    -Iexternal/xz/src/liblzma/rangecoder \
-    -Iexternal/xz/src/liblzma/simple \
-    -Iexternal/xz/src/liblzma \
-	-Iexternal/xz_config
+    -Isrc/external/xz_config \
+    -Isrc/external/xz/src/common \
+    -Isrc/external/xz/src/liblzma/api \
+    -Isrc/external/xz/src/liblzma/check \
+    -Isrc/external/xz/src/liblzma/common \
+    -Isrc/external/xz/src/liblzma/delta \
+    -Isrc/external/xz/src/liblzma/lz \
+    -Isrc/external/xz/src/liblzma/lzma \
+    -Isrc/external/xz/src/liblzma/rangecoder \
+    -Isrc/external/xz/src/liblzma/simple \
+    -Isrc/external/xz/src/liblzma \
+	-Isrc/external/xz_config
 LIBLZMA_OBJ = $(patsubst %.c,obj/lzma/%.o,$(LIBLZMA_SRC))
 
 LIBBZ2_SRC = \
-    external/bzip2/blocksort.c  \
-    external/bzip2/huffman.c    \
-    external/bzip2/crctable.c   \
-    external/bzip2/randtable.c  \
-    external/bzip2/compress.c   \
-    external/bzip2/decompress.c \
-    external/bzip2/bzlib.c
+    src/external/bzip2/blocksort.c  \
+    src/external/bzip2/huffman.c    \
+    src/external/bzip2/crctable.c   \
+    src/external/bzip2/randtable.c  \
+    src/external/bzip2/compress.c   \
+    src/external/bzip2/decompress.c \
+    src/external/bzip2/bzlib.c
 LIBBZ2_OBJ = $(patsubst %.c,obj/%.o,$(LIBBZ2_SRC))
 
 LIBLZ4_SRC = \
-    external/lz4/libs/lz4.c \
-    external/lz4/libs/lz4frame.c \
-    external/lz4/libs/lz4hc.c \
-    external/lz4/libs/xxhash.c
+    src/external/lz4/lib/lz4.c \
+    src/external/lz4/lib/lz4frame.c \
+    src/external/lz4/lib/lz4hc.c \
+    src/external/lz4/lib/xxhash.c
 LIBLZ4_OBJ = $(patsubst %.c,obj/%.o,$(LIBLZ4_SRC))
 
 LIBZOPFLI_SRC = \
-    external/zopfli/src/zopfli/blocksplitter.c \
-    external/zopfli/src/zopfli/cache.c \
-    external/zopfli/src/zopfli/deflate.c \
-    external/zopfli/src/zopfli/gzip_container.c \
-    external/zopfli/src/zopfli/hash.c \
-    external/zopfli/src/zopfli/katajainen.c \
-    external/zopfli/src/zopfli/lz77.c \
-    external/zopfli/src/zopfli/squeeze.c \
-    external/zopfli/src/zopfli/tree.c \
-    external/zopfli/src/zopfli/util.c \
-    external/zopfli/src/zopfli/zlib_container.c \
-    external/zopfli/src/zopfli/zopfli_lib.c
+    src/external/zopfli/src/zopfli/blocksplitter.c \
+    src/external/zopfli/src/zopfli/cache.c \
+    src/external/zopfli/src/zopfli/deflate.c \
+    src/external/zopfli/src/zopfli/gzip_container.c \
+    src/external/zopfli/src/zopfli/hash.c \
+    src/external/zopfli/src/zopfli/katajainen.c \
+    src/external/zopfli/src/zopfli/lz77.c \
+    src/external/zopfli/src/zopfli/squeeze.c \
+    src/external/zopfli/src/zopfli/tree.c \
+    src/external/zopfli/src/zopfli/util.c \
+    src/external/zopfli/src/zopfli/zlib_container.c \
+    src/external/zopfli/src/zopfli/zopfli_lib.c
 LIBZOPFLI_OBJ = $(patsubst %.c,obj/zopfli/%.o,$(LIBZOPFLI_SRC))
 
 LIBFDT_SRC = \
-    external/dtc/libfdt/fdt.c \
-    external/dtc/libfdt/fdt_addresses.c \
-    external/dtc/libfdt/fdt_empty_tree.c \
-    external/dtc/libfdt/fdt_overlay.c \
-    external/dtc/libfdt/fdt_ro.c \
-    external/dtc/libfdt/fdt_rw.c \
-    external/dtc/libfdt/fdt_strerror.c \
-    external/dtc/libfdt/fdt_sw.c \
-    external/dtc/libfdt/fdt_wip.c
+    src/external/dtc/libfdt/fdt.c \
+    src/external/dtc/libfdt/fdt_addresses.c \
+    src/external/dtc/libfdt/fdt_empty_tree.c \
+    src/external/dtc/libfdt/fdt_overlay.c \
+    src/external/dtc/libfdt/fdt_ro.c \
+    src/external/dtc/libfdt/fdt_rw.c \
+    src/external/dtc/libfdt/fdt_strerror.c \
+    src/external/dtc/libfdt/fdt_sw.c \
+    src/external/dtc/libfdt/fdt_wip.c
 LIBFDT_OBJ = $(patsubst %.c,obj/fdt/%.o,$(LIBFDT_SRC))
 
 LIBZ_SRC = \
-    external/zlib/adler32.c \
-    external/zlib/compress.c \
-    external/zlib/cpu_features.c \
-    external/zlib/crc32.c \
-    external/zlib/deflate.c \
-    external/zlib/gzclose.c \
-    external/zlib/gzlib.c \
-    external/zlib/gzread.c \
-    external/zlib/gzwrite.c \
-    external/zlib/infback.c \
-    external/zlib/inffast.c \
-    external/zlib/inflate.c \
-    external/zlib/inftrees.c \
-    external/zlib/trees.c \
-    external/zlib/uncompr.c \
-    external/zlib/zutil.c
+    src/external/zlib/adler32.c \
+    src/external/zlib/compress.c \
+    src/external/zlib/cpu_features.c \
+    src/external/zlib/crc32.c \
+    src/external/zlib/deflate.c \
+    src/external/zlib/gzclose.c \
+    src/external/zlib/gzlib.c \
+    src/external/zlib/gzread.c \
+    src/external/zlib/gzwrite.c \
+    src/external/zlib/infback.c \
+    src/external/zlib/inffast.c \
+    src/external/zlib/inflate.c \
+    src/external/zlib/inftrees.c \
+    src/external/zlib/trees.c \
+    src/external/zlib/uncompr.c \
+    src/external/zlib/zutil.c
 LIBZ_OBJ = $(patsubst %.c,obj/zlib/%.o,$(LIBZ_SRC))
 
 obj/zlib/%.o: %.c
@@ -331,5 +331,5 @@ clean:
 	@rm -rf obj
 	@echo -e "\t    RM\t    bin"
 	@rm -rf bin
-	@echo -e "\t    RM\t    lib"
-	@rm -rf lib
+	@echo -e "\t    RM\t    libs"
+	@rm -rf libs

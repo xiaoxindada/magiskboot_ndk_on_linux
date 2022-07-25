@@ -1,0 +1,564 @@
+From 17f445f51a10c693e65d9709f714812dca2a68b3 Mon Sep 17 00:00:00 2001
+From: affggh <879632264@qq.com>
+Date: Mon, 25 Jul 2022 17:45:46 +0800
+Subject: [PATCH] Add cygwin changes
+
+---
+ src/base/compat/compat.cpp |  6 ++--
+ src/base/files.cpp         |  5 +++
+ src/base/include/base.hpp  |  2 ++
+ src/base/logging.cpp       | 65 ++++++++++++++++++++++++++++++++++++--
+ src/base/logging.hpp       | 22 ++++++++++++-
+ src/base/misc.cpp          | 12 ++++---
+ src/base/missing.hpp       | 10 +++++-
+ src/base/new.cpp           |  4 +++
+ src/base/selinux.cpp       | 10 ++++--
+ src/base/stream.cpp        |  8 +++--
+ src/base/xwrap.cpp         | 32 ++++++++++++++-----
+ src/base/xwrap.hpp         |  6 +++-
+ src/boot/bootimg.hpp       |  6 +++-
+ src/boot/main.cpp          | 10 ++++--
+ 14 files changed, 170 insertions(+), 28 deletions(-)
+
+diff --git a/src/base/compat/compat.cpp b/src/base/compat/compat.cpp
+index 2914d70..ddc9f36 100644
+--- a/src/base/compat/compat.cpp
++++ b/src/base/compat/compat.cpp
+@@ -7,7 +7,9 @@
+ #include <mntent.h>
+ #include <unistd.h>
+ #include <fcntl.h>
++#ifndef __CYGWIN__ // Add by affggh
+ #include <sys/syscall.h>
++#endif // __CYGWIN__
+ #include <sys/stat.h>
+ 
+ extern "C" {
+@@ -67,7 +69,7 @@ int endmntent(FILE *fp) {
+ }
+ 
+ // Missing system call wrappers
+-
++#ifndef __CYGWIN__ // Add by affggh
+ int setns(int fd, int nstype) {
+     return syscall(__NR_setns, fd, nstype);
+ }
+@@ -104,7 +106,7 @@ int inotify_init1(int flags) {
+ int faccessat(int dirfd, const char *pathname, int mode, int flags) {
+     return syscall(__NR_faccessat, dirfd, pathname, mode, flags);
+ }
+-
++#endif // __CYGWIN__
+ int mkfifo(const char *path, mode_t mode) {
+     return mknod(path, (mode & ~S_IFMT) | S_IFIFO, 0);
+ }
+diff --git a/src/base/files.cpp b/src/base/files.cpp
+index 0a7233c..f8ffeb4 100644
+--- a/src/base/files.cpp
++++ b/src/base/files.cpp
+@@ -1,5 +1,10 @@
++#ifndef __CYGWIN__ // Add by affggh
+ #include <sys/sendfile.h>
+ #include <linux/fs.h>
++#else
++#include <cygwin/fs.h>
++#include <sys/ioctl.h>
++#endif // __CYGWIN__
+ #include <fcntl.h>
+ #include <unistd.h>
+ #include <libgen.h>
+diff --git a/src/base/include/base.hpp b/src/base/include/base.hpp
+index a8481f3..7c9d3c7 100644
+--- a/src/base/include/base.hpp
++++ b/src/base/include/base.hpp
+@@ -5,4 +5,6 @@
+ #include "../files.hpp"
+ #include "../misc.hpp"
+ #include "../logging.hpp"
++#ifndef __CYGWIN__ // Add by affggh
+ #include <base-rs.hpp>
++#endif // __CYGWIN__
+\ No newline at end of file
+diff --git a/src/base/logging.cpp b/src/base/logging.cpp
+index 067233d..c53bb16 100644
+--- a/src/base/logging.cpp
++++ b/src/base/logging.cpp
+@@ -1,16 +1,18 @@
+ #include <cstdio>
+ #include <cstdlib>
+-
++#ifndef __CYGWIN__ // Add by affggh
+ #include <android/log.h>
+ 
+ #include <flags.h>
++#endif // __CYGWIN__
+ #include <base.hpp>
+ 
+ // Just need to include it somewhere
++#ifndef __CYGWIN__ // Add by affggh
+ #include <base-rs.cpp>
+-
++#endif // __CYGWIN__
+ using namespace std;
+-
++#ifndef __CYGWIN__ // Add by affggh
+ static int fmt_and_log_with_rs(LogLevel level, const char *fmt, va_list ap) {
+     char buf[4096];
+     int ret = vsnprintf(buf, sizeof(buf), fmt, ap);
+@@ -73,3 +75,60 @@ void LOGE(const char *fmt, ...) { LOG_BODY(Error) }
+ extern "C" void __vloge(const char* fmt, va_list ap) {
+     cpp_logger(LogLevel::Error, fmt, ap);
+ }
++#else
++// Rollback to old version
++// Which can compile on cygwin
++int nop_log(const char *, va_list) { return 0; }
++
++void nop_ex(int) {}
++
++log_callback log_cb = {
++    .d = nop_log,
++    .i = nop_log,
++    .w = nop_log,
++    .e = nop_log,
++    .ex = nop_ex
++};
++
++void no_logging() {
++    log_cb.d = nop_log;
++    log_cb.i = nop_log;
++    log_cb.w = nop_log;
++    log_cb.e = nop_log;
++    log_cb.ex = nop_ex;
++}
++
++static int vprintfe(const char *fmt, va_list ap) {
++    return vfprintf(stderr, fmt, ap);
++}
++
++void cmdline_logging() {
++    log_cb.d = vprintfe;
++    log_cb.i = vprintf;
++    log_cb.w = vprintfe;
++    log_cb.e = vprintfe;
++    log_cb.ex = exit;
++}
++
++#define LOG_BODY(prio) { \
++    va_list argv;        \
++    va_start(argv, fmt); \
++    log_cb.prio(fmt, argv); \
++    va_end(argv);        \
++}
++
++// LTO will optimize out the NOP function
++#if MAGISK_DEBUG
++void LOGD(const char *fmt, ...) { LOG_BODY(d) }
++#else
++void LOGD(const char *fmt, ...) {}
++#endif
++void LOGI(const char *fmt, ...) { LOG_BODY(i) }
++void LOGW(const char *fmt, ...) { LOG_BODY(w) }
++void LOGE(const char *fmt, ...) { LOG_BODY(e); log_cb.ex(EXIT_FAILURE); }
++
++// Export raw symbol to fortify compat
++extern "C" int __vloge(const char* fmt, va_list ap) {
++    return log_cb.e(fmt, ap);
++}
++#endif // __CYGWIN__
+\ No newline at end of file
+diff --git a/src/base/logging.hpp b/src/base/logging.hpp
+index ac0a3dc..7e7d72a 100644
+--- a/src/base/logging.hpp
++++ b/src/base/logging.hpp
+@@ -2,13 +2,33 @@
+ 
+ #include <cerrno>
+ #include <cstdarg>
+-
++#ifndef __CYGWIN__ // Add by affggh
+ #include <base-rs.hpp>
+ 
+ extern int (*cpp_logger)(LogLevel level, const char *fmt, va_list ap);
++#else
++// Rollback to old version
++// Which can compile on cygwin
++struct log_callback {
++    int (*d)(const char* fmt, va_list ap);
++    int (*i)(const char* fmt, va_list ap);
++    int (*w)(const char* fmt, va_list ap);
++    int (*e)(const char* fmt, va_list ap);
++    void (*ex)(int code);
++};
++#endif // __CYGWIN__
+ 
+ void LOGD(const char *fmt, ...) __printflike(1, 2);
+ void LOGI(const char *fmt, ...) __printflike(1, 2);
+ void LOGW(const char *fmt, ...) __printflike(1, 2);
+ void LOGE(const char *fmt, ...) __printflike(1, 2);
+ #define PLOGE(fmt, args...) LOGE(fmt " failed with %d: %s\n", ##args, errno, std::strerror(errno))
++
++#ifdef __CYGWIN__ // Add by affggh
++// Old version
++int nop_log(const char *, va_list);
++void nop_ex(int);
++
++void no_logging();
++void cmdline_logging();
++#endif
+\ No newline at end of file
+diff --git a/src/base/misc.cpp b/src/base/misc.cpp
+index c235717..3eb5e65 100644
+--- a/src/base/misc.cpp
++++ b/src/base/misc.cpp
+@@ -1,11 +1,15 @@
+ #include <sys/types.h>
+ #include <sys/wait.h>
++#ifndef __CYGWIN__ // Add by affggh
+ #include <sys/prctl.h>
++#endif // __CYGWIN__
+ #include <sys/sysmacros.h>
+ #include <fcntl.h>
+ #include <pwd.h>
+ #include <unistd.h>
++#ifndef __CYGWIN__ // Add by affggh
+ #include <syscall.h>
++#endif // __CYGWIN__
+ #include <random>
+ #include <string>
+ 
+@@ -22,7 +26,7 @@ int fork_dont_care() {
+     }
+     return 0;
+ }
+-
++#ifndef __CYGWIN__ // Add by affggh
+ int fork_no_orphan() {
+     int pid = xfork();
+     if (pid)
+@@ -32,7 +36,7 @@ int fork_no_orphan() {
+         exit(1);
+     return 0;
+ }
+-
++#endif // __CYGWIN
+ int gen_rand_str(char *buf, int len, bool varlen) {
+     constexpr char ALPHANUM[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+     static std::mt19937 gen([]{
+@@ -123,13 +127,13 @@ void init_argv0(int argc, char **argv) {
+     argv0 = argv[0];
+     name_len = (argv[argc - 1] - argv[0]) + strlen(argv[argc - 1]) + 1;
+ }
+-
++#ifndef __CYGWIN__ // Add by affggh
+ void set_nice_name(const char *name) {
+     memset(argv0, 0, name_len);
+     strlcpy(argv0, name, name_len);
+     prctl(PR_SET_NAME, name);
+ }
+-
++#endif // __CYGWIN__
+ /*
+  * Bionic's atoi runs through strtol().
+  * Use our own implementation for faster conversion.
+diff --git a/src/base/missing.hpp b/src/base/missing.hpp
+index 5ca414a..1e165b4 100644
+--- a/src/base/missing.hpp
++++ b/src/base/missing.hpp
+@@ -1,11 +1,18 @@
+ #pragma once
+ 
++#ifndef __CYGWIN__ // Add by affggh
+ #include <sys/syscall.h>
+ #include <linux/fcntl.h>
++#else
++#include <sys/fcntl.h>
++#endif // __CYGWIN__
++
+ #include <unistd.h>
+ #include <cerrno>
+ #include <cstdio>
+-
++// Add by affggh
++// Cygwin compiled magiskboot do not need these functions
++#if !defined(__CYGWIN__)
+ static inline int sigtimedwait(const sigset_t* set, siginfo_t* info, const timespec* timeout) {
+     union {
+         sigset_t set;
+@@ -24,3 +31,4 @@ static inline int fexecve(int fd, char* const* argv, char* const* envp) {
+     }
+     return -1;
+ }
++#endif // __CYGWIN__
+\ No newline at end of file
+diff --git a/src/base/new.cpp b/src/base/new.cpp
+index a0b36b1..aa50f0e 100644
+--- a/src/base/new.cpp
++++ b/src/base/new.cpp
+@@ -6,8 +6,12 @@
+ 
+ void* operator new(std::size_t s) { return malloc(s); }
+ void* operator new[](std::size_t s) { return malloc(s); }
++#ifndef __CYGWIN__ // Add by affggh
++// Fix Warning: function previously declared with an explicit exception...
++// Already defined on cygiwn libc++
+ void  operator delete(void *p) { free(p); }
+ void  operator delete[](void *p) { free(p); }
++#endif // __CYGWIN__
+ void* operator new(std::size_t s, const std::nothrow_t&) noexcept { return malloc(s); }
+ void* operator new[](std::size_t s, const std::nothrow_t&) noexcept { return malloc(s); }
+ void  operator delete(void *p, const std::nothrow_t&) noexcept { free(p); }
+diff --git a/src/base/selinux.cpp b/src/base/selinux.cpp
+index dcf3cb0..ae5938a 100644
+--- a/src/base/selinux.cpp
++++ b/src/base/selinux.cpp
+@@ -1,10 +1,14 @@
+ #include <unistd.h>
++#ifndef __CYGWIN__ // Add by affggh
+ #include <sys/syscall.h>
++#endif // __CYGWIN__
+ #include <sys/xattr.h>
+ 
+ #include <base.hpp>
+ #include <selinux.hpp>
++#ifndef __CYGWIN__ // Add by affggh
+ #include <flags.h>
++#endif
+ 
+ using namespace std;
+ 
+@@ -41,7 +45,7 @@ static int __setcon(const char *ctx) {
+     close(fd);
+     return rc != len;
+ }
+-
++#ifndef __CYGWIN__ // Add by affggh
+ static int __getfilecon(const char *path, char **ctx) {
+     char buf[1024];
+     int rc = syscall(__NR_getxattr, path, XATTR_NAME_SELINUX, buf, sizeof(buf) - 1);
+@@ -77,7 +81,7 @@ static int __lsetfilecon(const char *path, const char *ctx) {
+ static int __fsetfilecon(int fd, const char *ctx) {
+     return syscall(__NR_fsetxattr, fd, XATTR_NAME_SELINUX, ctx, strlen(ctx) + 1, 0);
+ }
+-
++#endif // __CYGWIN__
+ // Function pointers
+ 
+ void (*freecon)(char *) = __freecon;
+@@ -120,10 +124,12 @@ void enable_selinux() {
+     se_state = true;
+ #endif
+     setcon = __setcon;
++#ifndef __CYGWIN__ //  Add by affggh
+     getfilecon = __getfilecon;
+     lgetfilecon = __lgetfilecon;
+     fgetfilecon = __fgetfilecon;
+     setfilecon = __setfilecon;
+     lsetfilecon = __lsetfilecon;
+     fsetfilecon = __fsetfilecon;
++#endif // __CYGWIN__
+ }
+diff --git a/src/base/stream.cpp b/src/base/stream.cpp
+index ce11885..a63ceb1 100644
+--- a/src/base/stream.cpp
++++ b/src/base/stream.cpp
+@@ -1,6 +1,8 @@
+ #include <unistd.h>
+ #include <cstddef>
+-
++#ifdef __CYGWIN__ // Add by affggh
++#include <stdio.h>
++#endif // __CYGWIN__
+ #include <base.hpp>
+ #include <stream.hpp>
+ 
+@@ -28,13 +30,13 @@ static int strm_close(void *v) {
+     delete strm;
+     return 0;
+ }
+-
++#ifndef __CYGWIN__ // Add by affggh
+ sFILE make_stream_fp(stream_ptr &&strm) {
+     auto fp = make_file(funopen(strm.release(), strm_read, strm_write, strm_seek, strm_close));
+     setbuf(fp.get(), nullptr);
+     return fp;
+ }
+-
++#endif // __CYGWIN__
+ ssize_t stream::read(void *buf, size_t len)  {
+     LOGE("This stream does not implement read\n");
+     return -1;
+diff --git a/src/base/xwrap.cpp b/src/base/xwrap.cpp
+index d9cdfe8..4f86a4e 100644
+--- a/src/base/xwrap.cpp
++++ b/src/base/xwrap.cpp
+@@ -6,10 +6,11 @@
+ #include <sys/stat.h>
+ #include <sys/mount.h>
+ #include <sys/mman.h>
++#ifndef __CYGWIN__ // Add by affggh
+ #include <sys/sendfile.h>
+ #include <sys/ptrace.h>
+ #include <sys/inotify.h>
+-
++#endif // __CYGWIN__
+ #include <base.hpp>
+ 
+ using namespace std;
+@@ -126,7 +127,7 @@ int xpipe2(int pipefd[2], int flags) {
+     }
+     return ret;
+ }
+-
++#ifndef __CYGWIN__ // Add by affggh
+ int xsetns(int fd, int nstype) {
+     int ret = setns(fd, nstype);
+     if (ret < 0) {
+@@ -142,7 +143,7 @@ int xunshare(int flags) {
+     }
+     return ret;
+ }
+-
++#endif // __CYGWIN__
+ DIR *xopendir(const char *name) {
+     DIR *d = opendir(name);
+     if (d == nullptr) {
+@@ -396,7 +397,7 @@ int xlinkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath
+     }
+     return ret;
+ }
+-
++#ifndef __CYGWIN__ // Add by affggh
+ int xmount(const char *source, const char *target,
+     const char *filesystemtype, unsigned long mountflags,
+     const void *data) {
+@@ -422,7 +423,7 @@ int xumount2(const char *target, int flags) {
+     }
+     return ret;
+ }
+-
++#endif // __CYGWIN__
+ int xrename(const char *oldpath, const char *newpath) {
+     int ret = rename(oldpath, newpath);
+     if (ret < 0) {
+@@ -466,7 +467,21 @@ void *xmmap(void *addr, size_t length, int prot, int flags,
+ }
+ 
+ ssize_t xsendfile(int out_fd, int in_fd, off_t *offset, size_t count) {
++#ifndef __CYGWIN__ // Add by affggh
+     ssize_t ret = sendfile(out_fd, in_fd, offset, count);
++#else // Source from thka2016@github.com
++    ssize_t ret = 0;
++    char buf[4096];
++    int len = 4096;
++    int size = count / len;
++    for(int i=0; i < size; i++) {
++        read(in_fd, buf, len);
++        write(out_fd, buf, len);
++    }
++    size = count % len;
++    read(in_fd, buf, size);
++    write(out_fd, buf, size);
++#endif // __CYGWIN__
+     if (ret < 0) {
+         PLOGE("sendfile");
+     }
+@@ -488,7 +503,7 @@ int xpoll(struct pollfd *fds, nfds_t nfds, int timeout) {
+     }
+     return ret;
+ }
+-
++#ifndef __CYGWIN__ // Add by affggh
+ int xinotify_init1(int flags) {
+     int ret = inotify_init1(flags);
+     if (ret < 0) {
+@@ -496,7 +511,7 @@ int xinotify_init1(int flags) {
+     }
+     return ret;
+ }
+-
++#endif // __CYGWIN__
+ char *xrealpath(const char *path, char *resolved_path) {
+     char buf[PATH_MAX];
+     char *ret = realpath(path, buf);
+@@ -515,10 +530,11 @@ int xmknod(const char *pathname, mode_t mode, dev_t dev) {
+     }
+     return ret;
+ }
+-
++#ifndef __CYGWIN__ // Add by affggh
+ long xptrace(int request, pid_t pid, void *addr, void *data) {
+     long ret = ptrace(request, pid, addr, data);
+     if (ret < 0)
+         PLOGE("ptrace %d", pid);
+     return ret;
+ }
++#endif // __CYGWIN__
+\ No newline at end of file
+diff --git a/src/base/xwrap.hpp b/src/base/xwrap.hpp
+index 7c899c2..256787f 100644
+--- a/src/base/xwrap.hpp
++++ b/src/base/xwrap.hpp
+@@ -4,7 +4,11 @@
+ #include <stdio.h>
+ #include <poll.h>
+ #include <fcntl.h>
+-
++// Add by affggh
++// Cygwin compiler cannot auto detect socklen_t
++#ifdef __CYGWIN__
++#include <cygwin/socket.h>
++#endif // __CYGWIN__
+ FILE *xfopen(const char *pathname, const char *mode);
+ FILE *xfdopen(int fd, const char *mode);
+ int xopen(const char *pathname, int flags);
+diff --git a/src/boot/bootimg.hpp b/src/boot/bootimg.hpp
+index cc3d1d8..482c0ab 100644
+--- a/src/boot/bootimg.hpp
++++ b/src/boot/bootimg.hpp
+@@ -4,7 +4,11 @@
+ #include <utility>
+ #include <bitset>
+ #include "format.hpp"
+-
++#ifdef __CYGWIN__
++#define off64_t off_t
++#define lseek64 lseek
++#define ftruncate64 ftruncate
++#endif
+ /******************
+  * Special Headers
+  *****************/
+diff --git a/src/boot/main.cpp b/src/boot/main.cpp
+index 19f194f..292fc1a 100644
+--- a/src/boot/main.cpp
++++ b/src/boot/main.cpp
+@@ -3,7 +3,9 @@
+ 
+ #include "magiskboot.hpp"
+ #include "compress.hpp"
+-
++#ifdef __CYGWIN__ // Add by affggh
++#define MODIFIED_VER "Magiskboot on cygwin64 modified by affggh"
++#endif // __CYGWIN__
+ using namespace std;
+ 
+ static void print_formats() {
+@@ -131,9 +133,13 @@ Supported actions:
+ }
+ 
+ int main(int argc, char *argv[]) {
++#ifndef __CYGWIN__ // Add by affggh
+     cmdline_logging();
++#endif // __CYGWIN__
+     umask(0);
+-
++#ifdef __CYGWIN__ // Add by affggh
++    fprintf(stderr, "%s\n", MODIFIED_VER);
++#endif // __CYGWIN__
+     if (argc < 2)
+         usage(argv[0]);
+ 
+-- 
+2.37.1
+
