@@ -1,0 +1,60 @@
+# This is a sync magiskboot lastest source with Actions push
+
+name: build
+
+on:
+  push:
+    paths:
+      - ".github/workflows/build.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Cygwin
+        uses: egor-tensin/setup-cygwin@v3
+        with:
+          platform: x64
+          packages: cmake make gcc-g++ github iconv-devel zlib-devel clang zip unzip curl
+
+      - name: Clone source code
+        shell: C:\tools\cygwin\bin\bash.exe --login --norc -eo pipefail -o igncr '{0}'
+        run: |
+          git clone --recurse-submodules https://github.com/xiaoxindada/magiskboot_ndk_on_linux.git -b cygwin magiskboot
+
+      - name: building
+        shell: C:\tools\cygwin\bin\bash.exe --login --norc -eo pipefail -o igncr '{0}'
+        run: |
+          cd magiskboot
+          # patch apply source code
+          for p in $(find "patches\\public" -type f); do
+            if ! git am -3 <$p; then
+              patch -p1 <$p
+            fi
+          done
+          # build
+          make -j$(nproc --all)
+          # output
+          ls -al bin
+          
+      - name: Repack out
+        shell: C:\tools\cygwin\bin\bash.exe --login --norc -eo pipefail -o igncr '{0}'
+        run: |
+          cd magiskboot
+          zip -r magiskboot-Windows.zip bin
+          
+      - name: Upload output to GH-Release
+        uses: ncipollo/release-action@v1.8.6
+        with:
+          artifacts: C:\tools\cygwin\home\runneradmin\magiskboot\magiskboot-Windows.zip
+          name: "Magiskboot-${{ github.run_number }}-Windows"
+          tag: "Magiskboot-${{ github.run_number }}-Windows"
+          bodyFile: C:\tools\cygwin\home\runneradmin\magiskboot\magisk_config.prop
+          token: ${{ secrets.GITHUB_TOKEN }}
