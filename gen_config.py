@@ -18,7 +18,7 @@ EXE_EXT = '.exe' if is_windows else ''
 native_gen_path = op.realpath(op.join(LOCALDIR, 'generated'))
 rust_bin = op.join(op.join(LOCALDIR, 'ndk', 'toolchains', 'rust', 'bin'))
 cargo = op.join(rust_bin, 'cargo' + EXE_EXT)
-
+release = True
 
 if not is_ci and is_windows:
     import colorama
@@ -145,18 +145,18 @@ def dump_flags_header():
 
 
 def dump_rust_header():
-    os.chdir(op.join(LOCALDIR, 'rust'))
+    os.chdir(op.join(LOCALDIR, 'src'))
     env = os.environ.copy()
     env['CARGO_BUILD_RUSTC'] = op.join(rust_bin, 'rustc' + EXE_EXT)
 
     # generate C++ bindings
     local_cargo_root = op.join(LOCALDIR, '.cargo')
     cxxbridge = op.join(local_cargo_root, 'bin', 'cxxbridge' + EXE_EXT)
-    mkdir(native_gen_path)
+    mkdir_p(native_gen_path)
     for p in ['base', 'boot', 'core', 'init', 'sepolicy']:
-        text = cmd_out([cxxbridge, op.join(p, 'src', 'lib.rs')])
+        text = cmd_out([cxxbridge, op.join(p, 'lib.rs')])
         write_if_diff(op.join(native_gen_path, f'{p}-rs.cpp'), text)
-        text = cmd_out([cxxbridge, '--header', op.join(p, 'src', 'lib.rs')])
+        text = cmd_out([cxxbridge, '--header', op.join(p, 'lib.rs')])
         write_if_diff(op.join(native_gen_path, f'{p}-rs.hpp'), text)
 
     os.chdir(LOCALDIR)
@@ -167,7 +167,7 @@ def gen_prebuilt_rust_libs():
     triples = ['armv7a-linux-androideabi', 'i686-linux-android',
                'aarch64-linux-android', 'x86_64-linux-android']
 
-    os.chdir(op.join(LOCALDIR, 'rust'))
+    os.chdir(op.join(LOCALDIR, 'src'))
     env = os.environ.copy()
     env['CARGO_BUILD_RUSTC'] = op.join(rust_bin, 'rustc' + EXE_EXT)
     rust_targets = ['magisk', 'magiskinit', 'magiskboot', 'magiskpolicy']
@@ -179,9 +179,9 @@ def gen_prebuilt_rust_libs():
     for target in targets:
         cmds.append('-p')
         cmds.append(target)
+    if release:
         cmds.append('-r')
         rust_out = 'release'
-       # cmds.append('-q')
 
     os_name = platform.system().lower()
     llvm_bin = op.join(LOCALDIR, 'ndk', 'toolchains', 'llvm',
@@ -197,7 +197,7 @@ def gen_prebuilt_rust_libs():
         if proc.returncode != 0:
             error('Build binary failed!')
 
-        arch_out = op.join(LOCALDIR, 'jni', 'prebuilt_libs', arch)
+        arch_out = op.join(LOCALDIR, 'src', 'prebuilt_libs', arch)
         rm_rf(arch_out)
         mkdir_p(arch_out)
         for tgt in targets:

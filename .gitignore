@@ -5,5 +5,5 @@
 /ndk
 *.zip
 *.gz
-jni/prebuilt_libs/
+src/prebuilt_libs/
 

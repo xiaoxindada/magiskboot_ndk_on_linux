@@ -1,8 +1,5 @@
 #!/bin/bash
 LOCALDIR=$(cd "$(dirname ${BASH_SOURCE[0]})" && pwd)
-
-DEBUG=false
-
 ONDK_VERSION=$(cat magisk_config.prop | grep "magisk.ondkVersion="| head -n 1 | cut -d "=" -f 2)
 ONDK_URL="https://github.com/topjohnwu/ondk/releases/download/$ONDK_VERSION/ondk-$ONDK_VERSION-linux.tar.gz"
 ARCHIVE_NAME=${ONDK_URL##*/}
@@ -19,23 +16,22 @@ update_code() {
   tail -n $read_magisk_config_line <Magisk/gradle.properties >magisk_config.prop
   echo "magisk.version=$magisk_version" >>magisk_config.prop
 
-  rm -rf jni rust
-  mv Magisk/native/jni/ jni/
-  mv Magisk/native/rust/ rust/
+  rm -rf src
+  mv Magisk/native/src src/
   rm -rf Magisk
-  if [[ -d jni && -d rust ]]; then
+  if [[ -d src ]]; then
     # Fix busybox git push missing header file
-    [ -f "jni/external/busybox/include/.gitignore" ] && rm -rf "jni/external/busybox/include/.gitignore"
+    [ -f "src/external/busybox/include/.gitignore" ] && rm -rf "src/external/busybox/include/.gitignore"
     # Generate magisk dynamic resources
     python3 gen_config.py "dump_flags_header"
     python3 gen_config.py "dump_rust_header"
 
     # Fix path defined
-    sed -i 's|out/generated|jni/include/generated|g' jni/base/Android.mk
-    sed -i 's|\.\./out/\$(TARGET_ARCH_ABI)|\.\./jni/prebuilt_libs/\$(TARGET_ARCH_ABI)|g' jni/Android-rs.mk # prebuilt_libs
-    rm -rf jni/include/generated
-    mkdir -p jni/include/generated
-    cp -af generated/* jni/include/generated/
+    sed -i 's|out/generated|src/include/generated|g' src/base/Android.mk
+    sed -i 's|\.\./out/\$(TARGET_ARCH_ABI)|\.\./src/prebuilt_libs/\$(TARGET_ARCH_ABI)|g' src/Android-rs.mk # prebuilt_libs
+    rm -rf src/include/generated
+    mkdir -p src/include/generated
+    cp -af generated/* src/include/generated/
 
     echo "Upstream code update success, see log: https://github.com/topjohnwu/Magisk/tree/master/native"
   else
@@ -55,7 +51,7 @@ extract_archive() {
   "zip") cmd="7za x $archive -o$extract_dir" ;;
   "tar") cmd="tar -xf $archive -C $extract_dir" ;;
   "tar.gz") cmd="tar -zxf $archive -C $extract_dir" ;;
-  *) echo "unsupported archive" && exit 1 ;;
+  *) echo "unsupported archive!" && exit 1 ;;
   esac
 
   eval $cmd
@@ -92,22 +88,15 @@ build() {
   export PATH=${NDK}:${PATH}
   
   # prebuilt libs
-  # sed -i 's|\.\./out/\$(TARGET_ARCH_ABI)|\.\./jni/prebuilt_libs/\$(TARGET_ARCH_ABI)|g' jni/Android-rs.mk
+  # sed -i 's|\.\./out/\$(TARGET_ARCH_ABI)|\.\./src/prebuilt_libs/\$(TARGET_ARCH_ABI)|g' src/Android-rs.mk
   python3 gen_config.py "gen_prebuilt_rust_libs"
-
-  if [ $DEBUG = true ]; then
-    echo "debug"
-    ndk-build "B_BB=1"
-    ndk-build "B_BOOT=1" "B_POLICY=1"
-    exit 0
-  fi
-  ndk-build "B_BB=1" -j$(nproc --all)
+  ndk-build "NDK_PROJECT_PATH=$LOCALDIR" "NDK_APPLICATION_MK=src/Application.mk" "B_BB=1" -j$(nproc --all)
   if [ $? = 0 ]; then
     copy_output
   else
     return 1
   fi
-  ndk-build "B_BOOT=1" "B_POLICY=1" -j$(nproc --all)
+  ndk-build "NDK_PROJECT_PATH=$LOCALDIR" "NDK_APPLICATION_MK=src/Application.mk" "B_BOOT=1" "B_POLICY=1" -j$(nproc --all)
   if [ $? = 0 ]; then
     copy_output
   else
