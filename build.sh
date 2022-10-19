@@ -133,6 +133,8 @@ if [ $? = 0 ]; then
   magisk_versionCode=$(cat magisk_config.prop | grep "magisk.versionCode=" | cut -d "=" -f 2 | head -n 1)
   echo "Output: $LOCALDIR/out"
   echo "magisk.versionCode=$magisk_versionCode" >$LOCALDIR/out/magisk_version.txt
+  echo "# md5" >>$LOCALDIR/out/magisk_version.txt
+  md5sum $LOCALDIR/out/*/* | tee -a >>$LOCALDIR/out/magisk_version.txt
   exit 0
 else
   echo "build failed"
