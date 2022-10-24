@@ -13,7 +13,8 @@ LOCAL_DISABLE_FORMAT_STRING_CHECKS := true
 LOCAL_LDFLAGS := -static -Wl,--wrap=realpath
 LOCAL_CFLAGS := \
 -w -include include/autoconf.h -D__USE_BSD -D__USE_GNU \
--DBB_VER=\"$(BB_VER)\" -DBB_BT=AUTOCONF_TIMESTAMP
+-DBB_VER=\"$(BB_VER)\" -DBB_BT=AUTOCONF_TIMESTAMP \
+-Wno-implicit-function-declaration
 
 LOCAL_SRC_FILES := \
 applets/applets.c \
