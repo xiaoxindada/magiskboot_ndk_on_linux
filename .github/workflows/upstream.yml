@@ -46,4 +46,5 @@ jobs:
           > Etc/UTC: $UPDATE_ETC_UTC_TIME"
           git remote rm origin
           git remote add origin https://xiaoxindada:${{ secrets.GITHUB_TOKEN }}@github.com/xiaoxindada/magiskboot_ndk_on_linux.git
-          git push --all
+          git push origin main
+          git push origin cygwin
