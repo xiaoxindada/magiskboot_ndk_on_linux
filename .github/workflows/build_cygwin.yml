@@ -1,14 +1,14 @@
 # This is a sync magiskboot lastest source with Actions push
 
-name: build
+name: build_cygwin
 
 on:
   push:
     paths:
-      - ".github/workflows/build.yml"
+      - ".github/workflows/build_cygwin.yml"
   pull_request:
     paths:
-      - ".github/workflows/build.yml"
+      - ".github/workflows/build_cygwin.yml"
   workflow_dispatch:
 
 jobs:
