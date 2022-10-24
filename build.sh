@@ -14,8 +14,8 @@ update_code() {
   tail -n $read_magisk_config_line <Magisk/gradle.properties >magisk_config.prop
   echo "magisk.version=$magisk_version" >>magisk_config.prop
 
-  rm -rf jni rust src
-  mv Magisk/native/src/ src/
+  rm -rf src
+  mv Magisk/native/src src/
   rm -rf Magisk
   if [[ -d src ]]; then
     echo "Upstream code update success, see log: https://github.com/topjohnwu/Magisk/tree/master/native"
