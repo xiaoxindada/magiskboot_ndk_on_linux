@@ -8,7 +8,7 @@ on:
       - ".github/workflows/upstream_cygwin.yml"
   pull_request:
     paths:
-      - ".github/workflows/upstream.yml"
+      - ".github/workflows/upstream_cygwin.yml"
   workflow_dispatch:
   schedule:
     - cron: "10 0 * * *"
