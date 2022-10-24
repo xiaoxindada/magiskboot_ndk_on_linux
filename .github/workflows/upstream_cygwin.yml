@@ -1,6 +1,6 @@
 # This is a sync magiskboot lastest source with Actions push
 
-name: update_upstream
+name: update_upstream_cygwin
 
 on:
   push:
