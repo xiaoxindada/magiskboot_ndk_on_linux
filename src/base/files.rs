@@ -12,8 +12,7 @@ pub mod unsafe_impl {
 
     use crate::slice_from_ptr_mut;
 
-    #[no_mangle]
-    pub unsafe extern "C" fn read_link(path: *const c_char, buf: *mut u8, bufsz: usize) -> isize {
+    pub unsafe fn readlink(path: *const c_char, buf: *mut u8, bufsz: usize) -> isize {
         let r = libc::readlink(path, buf.cast(), bufsz - 1);
         if r >= 0 {
             *buf.offset(r) = b'\0';
@@ -68,7 +67,7 @@ macro_rules! xopen_fd {
 }
 
 pub fn readlink(path: &CStr, data: &mut [u8]) -> isize {
-    unsafe { unsafe_impl::read_link(path.as_ptr(), data.as_mut_ptr(), data.len()) }
+    unsafe { unsafe_impl::readlink(path.as_ptr(), data.as_mut_ptr(), data.len()) }
 }
 
 pub fn fd_path(fd: RawFd, buf: &mut [u8]) -> isize {
@@ -82,19 +81,19 @@ pub fn realpath(path: &CStr, buf: &mut [u8]) -> isize {
     if let Some(fd) = open_fd!(path, O_PATH | O_CLOEXEC) {
         let mut st1: libc::stat;
         let mut st2: libc::stat;
+        let mut skip_check = false;
         unsafe {
             st1 = std::mem::zeroed();
             if libc::fstat(fd.as_raw_fd(), &mut st1) < 0 {
-                *errno() = ENOENT;
-                return -1;
+                // This shall only fail on Linux < 3.6
+                skip_check = true;
             }
         }
         let len = fd_path(fd.as_raw_fd(), buf);
         unsafe {
             st2 = std::mem::zeroed();
             if libc::stat(buf.as_ptr().cast(), &mut st2) < 0
-                || st2.st_dev != st1.st_dev
-                || st2.st_ino != st1.st_ino
+                || (!skip_check && (st2.st_dev != st1.st_dev || st2.st_ino != st1.st_ino))
             {
                 *errno() = ENOENT;
                 return -1;
