@@ -47,6 +47,7 @@ static void mount_mirrors() {
     LOGI("* Prepare worker\n");
     auto worker_dir = MAGISKTMP + "/" WORKERDIR;
     xmount("worker", worker_dir.data(), "tmpfs", 0, "mode=755");
+    xmount(nullptr, worker_dir.data(), nullptr, MS_PRIVATE, nullptr);
 
     LOGI("* Mounting mirrors\n");
     // recursively bind mount / to mirror dir
@@ -234,9 +235,6 @@ static bool check_key_combo() {
 extern int disable_deny();
 
 static void post_fs_data() {
-    if (getenv("REMOUNT_ROOT"))
-        xmount(nullptr, "/", nullptr, MS_REMOUNT | MS_RDONLY, nullptr);
-
     if (!check_data())
         return;
 
