@@ -1,5 +1,6 @@
 #include <sys/mount.h>
 #include <libgen.h>
+#include <sys/sysmacros.h>
 
 #include <magisk.hpp>
 #include <base.hpp>
@@ -181,11 +182,22 @@ static void extract_files(bool sbin) {
     }
 }
 
+void MagiskInit::parse_config_file() {
+    parse_prop_file("/data/.backup/.magisk", [this](auto key, auto value) -> bool {
+        if (key == "PREINITDEVICE") {
+            preinit_dev = value;
+            return false;
+        }
+        return true;
+    });
+}
+
 #define ROOTMIR     MIRRDIR "/system_root"
 #define NEW_INITRC  "/system/etc/init/hw/init.rc"
 
 void MagiskInit::patch_ro_root() {
     mount_list.emplace_back("/data");
+    parse_config_file();
 
     string tmp_dir;
 
@@ -272,6 +284,8 @@ void RootFSInit::prepare() {
 
 void MagiskInit::patch_rw_root() {
     mount_list.emplace_back("/data");
+    parse_config_file();
+
     // Create hardlink mirror of /sbin to /root
     mkdir("/root", 0777);
     clone_attr("/sbin", "/root");
