@@ -57,7 +57,6 @@ static void mount_mirrors() {
         xmount(nullptr, dest.data(), nullptr, MS_REMOUNT | MS_BIND | MS_RDONLY, nullptr);
         xmount(nullptr, dest.data(), nullptr, MS_PRIVATE, nullptr);
         chmod(SECURE_DIR, 0700);
-        restorecon();
     }
 
     // Check and mount preinit mirror
@@ -71,7 +70,7 @@ static void mount_mirrors() {
         bool mounted = false;
         for (const auto &info: self_mount_info) {
             if (info.root == "/" && info.device == preinit_dev) {
-                auto flags = split_ro(info.fs_option, ",");
+                auto flags = split_view(info.fs_option, ",");
                 auto rw = std::any_of(flags.begin(), flags.end(), [](const auto &flag) {
                     return flag == "rw"sv;
                 });
@@ -126,9 +125,11 @@ string find_preinit_device() {
     } matched = UNKNOWN;
     bool encrypted = getprop("ro.crypto.state") == "encrypted";
     bool mount = getuid() == 0 && getenv("MAGISKTMP");
+    bool make_dev = mount && getenv("MAKEDEV");
 
     string preinit_source;
     string preinit_dir;
+    dev_t preinit_dev;
 
     for (const auto &info: parse_mount_info("self")) {
         if (info.target.ends_with(PREINITMIRR))
@@ -137,7 +138,7 @@ string find_preinit_device() {
             continue;
         if (info.type != "ext4" && info.type != "f2fs")
             continue;
-        auto flags = split_ro(info.fs_option, ",");
+        auto flags = split_view(info.fs_option, ",");
         auto rw = std::any_of(flags.begin(), flags.end(), [](const auto &flag) {
             return flag == "rw"sv;
         });
@@ -180,6 +181,7 @@ string find_preinit_device() {
 
         if (mount) {
             preinit_dir = resolve_preinit_dir(info.target.data());
+            preinit_dev = info.device;
         }
         preinit_source = info.source;
     }
@@ -189,6 +191,10 @@ string find_preinit_device() {
         mkdirs(preinit_dir.data(), 0700);
         mkdirs(mirror_dir.data(), 0700);
         xmount(preinit_dir.data(), mirror_dir.data(), nullptr, MS_BIND, nullptr);
+        if (make_dev) {
+            auto dev_path = string(getenv("MAGISKTMP")) + "/" PREINITDEV;
+            xmknod(dev_path.data(), S_IFBLK | 0600, preinit_dev);
+        }
     }
     return preinit_source.empty() ? "" : basename(preinit_source.data());
 }
@@ -226,8 +232,7 @@ static bool magisk_env() {
     xmkdir(DATABIN, 0755);
     xmkdir(SECURE_DIR "/post-fs-data.d", 0755);
     xmkdir(SECURE_DIR "/service.d", 0755);
-
-    restore_databincon();
+    restorecon();
 
     if (access(DATABIN "/busybox", X_OK))
         return false;

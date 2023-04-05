@@ -72,7 +72,7 @@ on property:init.svc.zygote=restarting
 
 on property:init.svc.zygote=stopped
     exec %2$s 0 0 -- %1$s/magisk --zygote-restart
-)EOF", tmp_dir, "u:r:" SEPOL_PROC_DOMAIN ":s0");
+)EOF", tmp_dir, MAGISK_PROC_CON);
 
     fclose(rc);
     clone_attr(src, dest);
@@ -199,13 +199,17 @@ static void extract_files(bool sbin) {
 }
 
 void MagiskInit::parse_config_file() {
-    parse_prop_file("/data/.backup/.magisk", [this](auto key, auto value) -> bool {
+    uint64_t seed = 0;
+    parse_prop_file("/data/.backup/.magisk", [&](auto key, auto value) -> bool {
         if (key == "PREINITDEVICE") {
             preinit_dev = value;
-            return false;
+        } else if (key == "RANDOMSEED") {
+            value.remove_prefix(2); // 0x
+            seed = parse_uint64_hex(value);
         }
         return true;
     });
+    get_rand(&seed);
 }
 
 #define ROOTMIR     MIRRDIR "/system_root"
@@ -220,23 +224,22 @@ void MagiskInit::patch_ro_root() {
     if (access("/sbin", F_OK) == 0) {
         tmp_dir = "/sbin";
     } else {
-        char buf[8];
+        char buf[16];
         gen_rand_str(buf, sizeof(buf));
         tmp_dir = "/dev/"s + buf;
         xmkdir(tmp_dir.data(), 0);
     }
 
     setup_tmp(tmp_dir.data());
-    chdir(tmp_dir.data());
+    chdir("/data");
 
-    // Mount system_root mirror
-    xmkdir(ROOTMIR, 0755);
-    xmount("/", ROOTMIR, nullptr, MS_BIND, nullptr);
-    mount_list.emplace_back(tmp_dir + "/" ROOTMIR);
-
-    // Recreate original sbin structure if necessary
-    if (tmp_dir == "/sbin")
+    if (tmp_dir == "/sbin") {
+        // Recreate original sbin structure
+        xmkdir(ROOTMIR, 0755);
+        xmount("/", ROOTMIR, nullptr, MS_BIND, nullptr);
         recreate_sbin(ROOTMIR "/sbin", true);
+        xumount2(ROOTMIR, MNT_DETACH);
+    }
 
     xrename("overlay.d", ROOTOVL);
 
@@ -276,7 +279,8 @@ void MagiskInit::patch_ro_root() {
     // Oculus Go will use a special sepolicy if unlocked
     if (access("/sepolicy.unlocked", F_OK) == 0) {
         patch_sepolicy("/sepolicy.unlocked", ROOTOVL "/sepolicy.unlocked");
-    } else if ((access(SPLIT_PLAT_CIL, F_OK) != 0 && access("/sepolicy", F_OK) == 0) || !hijack_sepolicy()) {
+    } else if ((access(SPLIT_PLAT_CIL, F_OK) != 0 && access("/sepolicy", F_OK) == 0) ||
+               !hijack_sepolicy()) {
         patch_sepolicy("/sepolicy", ROOTOVL "/sepolicy");
     }
 
