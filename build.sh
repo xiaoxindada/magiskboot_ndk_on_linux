@@ -96,7 +96,7 @@ build() {
   else
     return 1
   fi
-  ndk-build "NDK_PROJECT_PATH=$LOCALDIR" "NDK_APPLICATION_MK=src/Application.mk" "B_BOOT=1" "B_POLICY=1" -j$(nproc --all)
+  ndk-build "NDK_PROJECT_PATH=$LOCALDIR" "NDK_APPLICATION_MK=src/Application.mk" "B_BOOT=1" -j$(nproc --all)
   if [ $? = 0 ]; then
     copy_output
   else
