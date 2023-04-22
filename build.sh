@@ -66,10 +66,10 @@ setup_ndk() {
   # Re-based on Magisk/build.py
   # Fix duplicate symbol
   echo "Patching static libs ..."
-  for target in 'aarch64-linux-android' 'arm-linux-androideabi' 'i686-linux-android' 'x86_64-linux-android'; do
+  for target in 'arm-linux-androideabi' 'i686-linux-android'; do
     local os_name=$(echo $(uname) | tr [:upper:] [:lower:])
     local arch=$(echo ${target} | cut -d '-' -f 1)
-    local lib_dir="ndk/toolchains/llvm/prebuilt/${os_name}-x86_64/sysroot/usr/lib/${target}/21"
+    local lib_dir="ndk/toolchains/llvm/prebuilt/${os_name}-x86_64/sysroot/usr/lib/${target}/23"
     local src_dir="ndk-bins/21/${arch}"
 
     cp -af $src_dir/* $lib_dir/

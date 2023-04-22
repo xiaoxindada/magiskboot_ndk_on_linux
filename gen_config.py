@@ -189,7 +189,7 @@ def gen_prebuilt_rust_libs():
     env['TARGET_CC'] = op.join(llvm_bin, 'clang' + EXE_EXT)
     env['RUSTFLAGS'] = '-Clinker-plugin-lto'
     for (arch, triple) in zip(archs, triples):
-        env['TARGET_CFLAGS'] = f'--target={triple}21'
+        env['TARGET_CFLAGS'] = f'--target={triple}23'
         rust_triple = 'thumbv7neon-linux-androideabi' if triple.startswith(
             'armv7') else triple
         rm_rf('target')
