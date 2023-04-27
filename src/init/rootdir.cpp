@@ -5,6 +5,7 @@
 #include <magisk.hpp>
 #include <base.hpp>
 #include <selinux.hpp>
+#include <flags.h>
 
 #include "init.hpp"
 
@@ -244,7 +245,8 @@ void MagiskInit::patch_ro_root() {
 
     xrename("overlay.d", ROOTOVL);
 
-#if ENABLE_AVD_HACK
+#if MAGISK_DEBUG
+    extern bool avd_hack;
     // Handle avd hack
     if (avd_hack) {
         int src = xopen("/init", O_RDONLY | O_CLOEXEC);

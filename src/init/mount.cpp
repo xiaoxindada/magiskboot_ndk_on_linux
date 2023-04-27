@@ -4,6 +4,7 @@
 #include <libgen.h>
 
 #include <base.hpp>
+#include <flags.h>
 #include <selinux.hpp>
 #include <magisk.hpp>
 
@@ -21,6 +22,10 @@ struct devinfo {
 };
 
 static vector<devinfo> dev_list;
+
+// When this boolean is set, this means we are currently
+// running magiskinit on legacy SAR AVD emulator
+bool avd_hack = false;
 
 static void parse_device(devinfo *dev, const char *uevent) {
     dev->partname[0] = '\0';
@@ -219,17 +224,18 @@ mount_root:
     bool is_two_stage = access("/apex", F_OK) == 0;
     LOGD("is_two_stage: [%d]\n", is_two_stage);
 
-#if ENABLE_AVD_HACK
-    if (!is_two_stage) {
-        if (config->emulator) {
-            avd_hack = true;
-            // These values are hardcoded for API 28 AVD
-            xmkdir("/dev/block", 0755);
-            strcpy(blk_info.block_dev, "/dev/block/vde1");
-            strcpy(blk_info.partname, "vendor");
-            setup_block();
-            xmount(blk_info.block_dev, "/vendor", "ext4", MS_RDONLY, nullptr);
-        }
+#if MAGISK_DEBUG
+    // For API 28 AVD, it uses legacy SAR setup that requires
+    // special hacks in magiskinit to work properly. We do not
+    // necessarily want this enabled in production builds.
+    if (!is_two_stage && config->emulator) {
+        avd_hack = true;
+        // These values are hardcoded for API 28 AVD
+        xmkdir("/dev/block", 0755);
+        strcpy(blk_info.block_dev, "/dev/block/vde1");
+        strcpy(blk_info.partname, "vendor");
+        setup_block();
+        xmount(blk_info.block_dev, "/vendor", "ext4", MS_RDONLY, nullptr);
     }
 #endif
 
