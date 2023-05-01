@@ -174,8 +174,7 @@ def gen_prebuilt_rust_libs():
     targets = set(rust_targets)
 
     # Start building the actual build commands
-    cmds = [cargo, 'build', '-Z', 'build-std=std,panic_abort',
-            '-Z', 'build-std-features=panic_immediate_abort']
+    cmds = [cargo, 'build']
     for target in targets:
         cmds.append('-p')
         cmds.append(target)
