@@ -3,11 +3,20 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
   schedule: [cron: "40 1 * * *"]
 
+permissions:
+  contents: read
+
 jobs:
+  pre_ci:
+    uses: dtolnay/.github/.github/workflows/pre_ci.yml@master
+
   test:
     name: ${{matrix.name || format('Rust {0}', matrix.rust)}}
+    needs: pre_ci
+    if: needs.pre_ci.outputs.continue
     runs-on: ${{matrix.os || 'ubuntu'}}-latest
     strategy:
       fail-fast: false
@@ -16,8 +25,8 @@ jobs:
           - rust: nightly
           - rust: beta
           - rust: stable
-          - rust: 1.57.0
-          - rust: 1.48.0
+          - rust: 1.60.0
+          - rust: 1.64.0
           - name: macOS
             rust: nightly
             os: macos
@@ -28,6 +37,7 @@ jobs:
     env:
       CXXFLAGS: ${{matrix.flags}}
       RUSTFLAGS: --cfg deny_warnings -Dwarnings
+    timeout-minutes: 45
     steps:
       - name: Enable symlinks (windows)
         if: matrix.os == 'windows'
@@ -45,7 +55,7 @@ jobs:
         # builds.
         run: |
           echo RUSTFLAGS=$RUSTFLAGS >> $GITHUB_ENV
-          echo ::set-output name=exclude::--exclude cxx-test-suite ${{matrix.rust == '1.48.0' && '--exclude cxxbridge-cmd' || ''}}
+          echo exclude=--exclude cxx-test-suite ${{matrix.rust == '1.60.0' && '--exclude cxxbridge-cmd' || ''}} >> $GITHUB_OUTPUT
         env:
           RUSTFLAGS: ${{env.RUSTFLAGS}} ${{matrix.os && github.event_name != 'schedule' && '--cfg skip_ui_tests' || ''}}
         id: testsuite
@@ -63,38 +73,34 @@ jobs:
     name: Buck
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-java@v1
         with:
-          java-version: 11
-          java-package: jre
-      - name: Install Buck
-        run: |
-          mkdir bin
-          wget -q -O bin/buck https://jitpack.io/com/github/facebook/buck/a5f0342ae3/buck-a5f0342ae3-java11.pex # dev branch from 2020.10.11
-          chmod +x bin/buck
-          echo bin >> $GITHUB_PATH
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/install@buck2
       - name: Install lld
         run: sudo apt-get install lld
-      - name: Vendor dependencies
-        run: |
-          cp third-party/Cargo.lock .
-          cargo vendor --versioned-dirs --locked third-party/vendor
-      - run: buck build :cxx#check --verbose=0
-      - run: buck run demo --verbose=0
-      - run: buck test ... --verbose=0
+      - run: buck2 run demo
+      - run: buck2 build ...
+      - run: buck2 test ...
+      - uses: dtolnay/install@reindeer
+      - run: reindeer buckify
+        working-directory: third-party
+      - name: Check reindeer-generated BUCK file up to date
+        run: git diff --exit-code
 
   bazel:
     name: Bazel
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v3
       - name: Install Bazel
         run: |
-          wget -q -O install.sh https://github.com/bazelbuild/bazel/releases/download/5.1.1/bazel-5.1.1-installer-linux-x86_64.sh
+          wget -q -O install.sh https://github.com/bazelbuild/bazel/releases/download/6.0.0/bazel-6.0.0-installer-linux-x86_64.sh
           chmod +x install.sh
           ./install.sh --user
           echo $HOME/bin >> $GITHUB_PATH
@@ -107,6 +113,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@clippy
@@ -116,6 +123,7 @@ jobs:
     name: Clang Tidy
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v3
       - name: Install clang-tidy
@@ -127,6 +135,7 @@ jobs:
     name: Outdated
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/install@cargo-outdated

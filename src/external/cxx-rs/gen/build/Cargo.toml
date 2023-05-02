@@ -1,16 +1,17 @@
 [package]
 name = "cxx-build"
-version = "1.0.72"
+version = "1.0.94"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
-edition = "2018"
-rust-version = "1.48"
-license = "MIT OR Apache-2.0"
+categories = ["development-tools::build-utils", "development-tools::ffi"]
 description = "C++ code generator for integrating `cxx` crate into a Cargo build."
-repository = "https://github.com/dtolnay/cxx"
-homepage = "https://cxx.rs"
+documentation = "https://docs.rs/cxx-build"
+edition = "2018"
 exclude = ["build.rs"]
-keywords = ["ffi"]
-categories = ["development-tools::ffi"]
+homepage = "https://cxx.rs"
+keywords = ["ffi", "build-dependencies"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dtolnay/cxx"
+rust-version = "1.60"
 
 [features]
 parallel = ["cc/parallel"]
@@ -19,16 +20,20 @@ experimental-async-fn = []
 
 [dependencies]
 cc = "1.0.49"
-codespan-reporting = "0.11"
+codespan-reporting = "0.11.1"
 once_cell = "1.9"
 proc-macro2 = { version = "1.0.39", default-features = false, features = ["span-locations"] }
 quote = { version = "1.0", default-features = false }
 scratch = "1.0"
-syn = { version = "1.0.95", default-features = false, features = ["parsing", "printing", "clone-impls", "full"] }
+syn = { version = "2.0.1", default-features = false, features = ["parsing", "printing", "clone-impls", "full"] }
 
 [dev-dependencies]
+cxx = { version = "1.0", path = "../.." }
 cxx-gen = { version = "0.7", path = "../lib" }
 pkg-config = "0.3"
+
+[lib]
+doc-scrape-examples = false
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

@@ -88,7 +88,7 @@ fn check_type_ident(cx: &mut Check, name: &NamedType) {
         && !cx.types.rust.contains(ident)
     {
         let msg = format!("unsupported type: {}", ident);
-        cx.error(ident, &msg);
+        cx.error(ident, msg);
     }
 }
 
@@ -123,10 +123,9 @@ fn check_type_rust_vec(cx: &mut Check, ty: &Ty1) {
             }
 
             match Atom::from(&ident.rust) {
-                None | Some(Char) | Some(U8) | Some(U16) | Some(U32) | Some(U64) | Some(Usize)
-                | Some(I8) | Some(I16) | Some(I32) | Some(I64) | Some(Isize) | Some(F32)
-                | Some(F64) | Some(RustString) => return,
-                Some(Bool) => { /* todo */ }
+                None | Some(Bool) | Some(Char) | Some(U8) | Some(U16) | Some(U32) | Some(U64)
+                | Some(Usize) | Some(I8) | Some(I16) | Some(I32) | Some(I64) | Some(Isize)
+                | Some(F32) | Some(F64) | Some(RustString) => return,
                 Some(CxxString) => {}
             }
         }
@@ -665,14 +664,14 @@ fn is_opaque_cxx(cx: &mut Check, ty: &Ident) -> bool {
 fn span_for_struct_error(strct: &Struct) -> TokenStream {
     let struct_token = strct.struct_token;
     let mut brace_token = Group::new(Delimiter::Brace, TokenStream::new());
-    brace_token.set_span(strct.brace_token.span);
+    brace_token.set_span(strct.brace_token.span.join());
     quote!(#struct_token #brace_token)
 }
 
 fn span_for_enum_error(enm: &Enum) -> TokenStream {
     let enum_token = enm.enum_token;
     let mut brace_token = Group::new(Delimiter::Brace, TokenStream::new());
-    brace_token.set_span(enm.brace_token.span);
+    brace_token.set_span(enm.brace_token.span.join());
     quote!(#enum_token #brace_token)
 }
 

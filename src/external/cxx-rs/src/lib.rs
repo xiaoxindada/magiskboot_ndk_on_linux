@@ -18,7 +18,7 @@
 //!
 //! <br>
 //!
-//! *Compiler support: requires rustc 1.48+ and c++11 or newer*<br>
+//! *Compiler support: requires rustc 1.60+ and c++11 or newer*<br>
 //! *[Release notes](https://github.com/dtolnay/cxx/releases)*
 //!
 //! <br>
@@ -364,10 +364,13 @@
 //! </table>
 
 #![no_std]
-#![doc(html_root_url = "https://docs.rs/cxx/1.0.72")]
-#![deny(improper_ctypes, improper_ctypes_definitions, missing_docs)]
-#![cfg_attr(not(no_unsafe_op_in_unsafe_fn_lint), deny(unsafe_op_in_unsafe_fn))]
-#![cfg_attr(no_unsafe_op_in_unsafe_fn_lint, allow(unused_unsafe))]
+#![doc(html_root_url = "https://docs.rs/cxx/1.0.94")]
+#![deny(
+    improper_ctypes,
+    improper_ctypes_definitions,
+    missing_docs,
+    unsafe_op_in_unsafe_fn
+)]
 #![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![allow(non_camel_case_types)]
 #![allow(
@@ -375,6 +378,7 @@
     clippy::declare_interior_mutable_const,
     clippy::doc_markdown,
     clippy::empty_enum,
+    clippy::extra_unused_type_parameters,
     clippy::inherent_to_string,
     clippy::items_after_statements,
     clippy::large_enum_variant,
@@ -490,6 +494,7 @@ pub type Vector<T> = CxxVector<T>;
 // Not public API.
 #[doc(hidden)]
 pub mod private {
+    pub use crate::c_char::c_char;
     pub use crate::cxx_vector::VectorElement;
     pub use crate::extern_type::{verify_extern_kind, verify_extern_type};
     pub use crate::function::FatFunction;

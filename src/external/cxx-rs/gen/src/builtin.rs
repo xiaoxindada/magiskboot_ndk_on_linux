@@ -26,7 +26,6 @@ pub struct Builtins<'a> {
     pub rust_str_repr: bool,
     pub rust_slice_new: bool,
     pub rust_slice_repr: bool,
-    pub exception: bool,
     pub relocatable: bool,
     pub relocatable_or_array: bool,
     pub friend_impl: bool,
@@ -138,6 +137,10 @@ pub(super) fn write(out: &mut OutFile) {
         builtin.unsafe_bitcopy_t = true;
     }
 
+    if builtin.trycatch {
+        builtin.ptr_len = true;
+    }
+
     out.begin_block(Block::Namespace("rust"));
     out.begin_block(Block::InlineNamespace("cxxbridge1"));
 
@@ -205,6 +208,26 @@ pub(super) fn write(out: &mut OutFile) {
         writeln!(out, "inline Slice<T>::Slice(uninit) noexcept {{}}");
     }
 
+    out.begin_block(Block::Namespace("repr"));
+
+    if builtin.repr_fat {
+        include.array = true;
+        include.cstdint = true;
+        out.next_section();
+        writeln!(out, "using Fat = ::std::array<::std::uintptr_t, 2>;");
+    }
+
+    if builtin.ptr_len {
+        include.cstddef = true;
+        out.next_section();
+        writeln!(out, "struct PtrLen final {{");
+        writeln!(out, "  void *ptr;");
+        writeln!(out, "  ::std::size_t len;");
+        writeln!(out, "}};");
+    }
+
+    out.end_block(Block::Namespace("repr"));
+
     out.begin_block(Block::Namespace("detail"));
 
     if builtin.maybe_uninit {
@@ -228,6 +251,21 @@ pub(super) fn write(out: &mut OutFile) {
             out,
             "  void *operator()(::std::size_t sz) {{ return T::operator new(sz); }}",
         );
+        writeln!(out, "}};");
+    }
+
+    if builtin.trycatch {
+        include.string = true;
+        out.next_section();
+        writeln!(out, "class Fail final {{");
+        writeln!(out, "  ::rust::repr::PtrLen &throw$;");
+        writeln!(out, "public:");
+        writeln!(
+            out,
+            "  Fail(::rust::repr::PtrLen &throw$) noexcept : throw$(throw$) {{}}",
+        );
+        writeln!(out, "  void operator()(char const *) noexcept;");
+        writeln!(out, "  void operator()(std::string const &) noexcept;");
         writeln!(out, "}};");
     }
 
@@ -263,26 +301,6 @@ pub(super) fn write(out: &mut OutFile) {
     }
 
     out.begin_block(Block::AnonymousNamespace);
-
-    if builtin.repr_fat {
-        include.array = true;
-        include.cstdint = true;
-        out.next_section();
-        out.begin_block(Block::Namespace("repr"));
-        writeln!(out, "using Fat = ::std::array<::std::uintptr_t, 2>;");
-        out.end_block(Block::Namespace("repr"));
-    }
-
-    if builtin.ptr_len {
-        include.cstddef = true;
-        out.next_section();
-        out.begin_block(Block::Namespace("repr"));
-        writeln!(out, "struct PtrLen final {{");
-        writeln!(out, "  void *ptr;");
-        writeln!(out, "  ::std::size_t len;");
-        writeln!(out, "}};");
-        out.end_block(Block::Namespace("repr"));
-    }
 
     if builtin.rust_str_new_unchecked || builtin.rust_str_repr {
         out.next_section();
@@ -334,7 +352,7 @@ pub(super) fn write(out: &mut OutFile) {
         writeln!(out, "public:");
         writeln!(out, "  static Error error(repr::PtrLen repr) noexcept {{");
         writeln!(out, "    Error error;");
-        writeln!(out, "    error.msg = static_cast<const char *>(repr.ptr);");
+        writeln!(out, "    error.msg = static_cast<char const *>(repr.ptr);");
         writeln!(out, "    error.len = repr.len;");
         writeln!(out, "    return error;");
         writeln!(out, "  }}");
@@ -394,21 +412,11 @@ pub(super) fn write(out: &mut OutFile) {
         writeln!(out, "                 missing>::value>::type");
         writeln!(out, "trycatch(Try &&func, Fail &&fail) noexcept try {{");
         writeln!(out, "  func();");
-        writeln!(out, "}} catch (const ::std::exception &e) {{");
+        writeln!(out, "}} catch (::std::exception const &e) {{");
         writeln!(out, "  fail(e.what());");
         writeln!(out, "}}");
         out.end_block(Block::Namespace("behavior"));
     }
 
     out.end_block(Block::Namespace("rust"));
-
-    if builtin.exception {
-        include.cstddef = true;
-        out.begin_block(Block::ExternC);
-        writeln!(
-            out,
-            "const char *cxxbridge1$exception(const char *, ::std::size_t);",
-        );
-        out.end_block(Block::ExternC);
-    }
 }

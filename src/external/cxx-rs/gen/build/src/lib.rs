@@ -45,6 +45,7 @@
 //! $ cxxbridge src/main.rs > path/to/mybridge.cc
 //! ```
 
+#![doc(html_root_url = "https://docs.rs/cxx-build/1.0.94")]
 #![allow(
     clippy::cast_sign_loss,
     clippy::default_trait_access,
@@ -56,7 +57,6 @@
     clippy::if_same_then_else,
     clippy::inherent_to_string,
     clippy::items_after_statements,
-    clippy::let_underscore_drop,
     clippy::match_bool,
     clippy::match_on_vec_items,
     clippy::match_same_arms,
@@ -399,6 +399,7 @@ fn generate_bridge(prj: &Project, build: &mut Build, rust_source_file: &Path) ->
     let opt = Opt {
         allow_dot_includes: false,
         cfg_evaluator: Box::new(CargoEnvCfgEvaluator),
+        doxygen: CFG.doxygen,
         ..Opt::default()
     };
     let generated = gen::generate_from_path(rust_source_file, &opt);

@@ -13,10 +13,13 @@ impl ToTokens for Type {
             Type::Ident(ident) => {
                 if ident.rust == Char {
                     let span = ident.rust.span();
-                    tokens.extend(quote_spanned!(span=> ::std::os::raw::));
+                    tokens.extend(quote_spanned!(span=> ::cxx::private::));
                 } else if ident.rust == CxxString {
                     let span = ident.rust.span();
                     tokens.extend(quote_spanned!(span=> ::cxx::));
+                } else if ident.rust == RustString {
+                    let span = ident.rust.span();
+                    tokens.extend(quote_spanned!(span=> ::cxx::alloc::string::));
                 }
                 ident.to_tokens(tokens);
             }
@@ -66,8 +69,11 @@ impl ToTokens for Ty1 {
             "UniquePtr" | "SharedPtr" | "WeakPtr" | "CxxVector" => {
                 tokens.extend(quote_spanned!(span=> ::cxx::));
             }
+            "Box" => {
+                tokens.extend(quote_spanned!(span=> ::cxx::alloc::boxed::));
+            }
             "Vec" => {
-                tokens.extend(quote_spanned!(span=> ::std::vec::));
+                tokens.extend(quote_spanned!(span=> ::cxx::alloc::vec::));
             }
             _ => {}
         }
@@ -90,7 +96,7 @@ impl ToTokens for Ref {
             mutability,
         } = self;
         if let Some((pin, langle, _rangle)) = pin_tokens {
-            tokens.extend(quote_spanned!(pin.span=> ::std::pin::Pin));
+            tokens.extend(quote_spanned!(pin.span=> ::cxx::core::pin::Pin));
             langle.to_tokens(tokens);
         }
         ampersand.to_tokens(tokens);
@@ -264,7 +270,7 @@ impl ToTokens for Signature {
             args.to_tokens(tokens);
         });
         if let Some(ret) = ret {
-            Token![->](paren_token.span).to_tokens(tokens);
+            Token![->](paren_token.span.join()).to_tokens(tokens);
             if let Some((result, langle, rangle)) = throws_tokens {
                 result.to_tokens(tokens);
                 langle.to_tokens(tokens);
@@ -274,7 +280,7 @@ impl ToTokens for Signature {
                 ret.to_tokens(tokens);
             }
         } else if let Some((result, langle, rangle)) = throws_tokens {
-            Token![->](paren_token.span).to_tokens(tokens);
+            Token![->](paren_token.span.join()).to_tokens(tokens);
             result.to_tokens(tokens);
             langle.to_tokens(tokens);
             token::Paren(langle.span).surround(tokens, |_| ());
