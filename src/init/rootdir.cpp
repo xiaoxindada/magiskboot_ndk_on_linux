@@ -158,14 +158,6 @@ static void magic_mount(const string &sdir, const string &ddir = "") {
     }
 }
 
-static void patch_socket_name(const char *path) {
-    static char rstr[16] = { 0 };
-    if (rstr[0] == '\0')
-        gen_rand_str(rstr, sizeof(rstr));
-    auto bin = mmap_data(path, true);
-    bin.patch({ make_pair(MAIN_SOCKET, rstr) });
-}
-
 static void extract_files(bool sbin) {
     const char *m32 = sbin ? "/sbin/magisk32.xz" : "magisk32.xz";
     const char *m64 = sbin ? "/sbin/magisk64.xz" : "magisk64.xz";
@@ -177,7 +169,6 @@ static void extract_files(bool sbin) {
         int fd = xopen("magisk32", O_WRONLY | O_CREAT, 0755);
         unxz(fd, magisk.buf, magisk.sz);
         close(fd);
-        patch_socket_name("magisk32");
     }
     if (access(m64, F_OK) == 0) {
         auto magisk = mmap_data(m64);
@@ -185,7 +176,6 @@ static void extract_files(bool sbin) {
         int fd = xopen("magisk64", O_WRONLY | O_CREAT, 0755);
         unxz(fd, magisk.buf, magisk.sz);
         close(fd);
-        patch_socket_name("magisk64");
         xsymlink("./magisk64", "magisk");
     } else {
         xsymlink("./magisk32", "magisk");
@@ -225,22 +215,24 @@ void MagiskInit::patch_ro_root() {
     if (access("/sbin", F_OK) == 0) {
         tmp_dir = "/sbin";
     } else {
-        char buf[16];
-        gen_rand_str(buf, sizeof(buf));
-        tmp_dir = "/dev/"s + buf;
-        xmkdir(tmp_dir.data(), 0);
+        tmp_dir = "/debug_ramdisk";
+        xmkdir("/data/debug_ramdisk", 0);
+        xmount("/debug_ramdisk", "/data/debug_ramdisk", nullptr, MS_MOVE, nullptr);
     }
 
     setup_tmp(tmp_dir.data());
     chdir(tmp_dir.data());
 
-    // Recreate original sbin structure if necessary
     if (tmp_dir == "/sbin") {
-        // Mount system_root mirror
+        // Recreate original sbin structure
         xmkdir(ROOTMIR, 0755);
         xmount("/", ROOTMIR, nullptr, MS_BIND, nullptr);
         recreate_sbin(ROOTMIR "/sbin", true);
         xumount2(ROOTMIR, MNT_DETACH);
+    } else {
+        // Restore debug_ramdisk
+        xmount("/data/debug_ramdisk", "/debug_ramdisk", nullptr, MS_MOVE, nullptr);
+        rmdir("/data/debug_ramdisk");
     }
 
     xrename("overlay.d", ROOTOVL);
@@ -282,7 +274,8 @@ void MagiskInit::patch_ro_root() {
     // Oculus Go will use a special sepolicy if unlocked
     if (access("/sepolicy.unlocked", F_OK) == 0) {
         patch_sepolicy("/sepolicy.unlocked", ROOTOVL "/sepolicy.unlocked");
-    } else if ((access(SPLIT_PLAT_CIL, F_OK) != 0 && access("/sepolicy", F_OK) == 0) || !hijack_sepolicy()) {
+    } else if ((access(SPLIT_PLAT_CIL, F_OK) != 0 && access("/sepolicy", F_OK) == 0) ||
+               !hijack_sepolicy()) {
         patch_sepolicy("/sepolicy", ROOTOVL "/sepolicy");
     }
 
