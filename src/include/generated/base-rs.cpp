@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <iterator>
 #include <stdexcept>
-#include <string>
 #include <type_traits>
 #if defined(_WIN32)
 #include <basetsd.h>
@@ -27,60 +26,12 @@ template <typename T>
 class impl;
 } // namespace
 
-class String;
 class Opaque;
 
 template <typename T>
 ::std::size_t size_of();
 template <typename T>
 ::std::size_t align_of();
-
-#ifndef CXXBRIDGE1_RUST_STR
-#define CXXBRIDGE1_RUST_STR
-class Str final {
-public:
-  Str() noexcept;
-  Str(const String &) noexcept;
-  Str(const std::string &);
-  Str(const char *);
-  Str(const char *, std::size_t);
-
-  Str &operator=(const Str &) &noexcept = default;
-
-  explicit operator std::string() const;
-
-  const char *data() const noexcept;
-  std::size_t size() const noexcept;
-  std::size_t length() const noexcept;
-  bool empty() const noexcept;
-
-  Str(const Str &) noexcept = default;
-  ~Str() noexcept = default;
-
-  using iterator = const char *;
-  using const_iterator = const char *;
-  const_iterator begin() const noexcept;
-  const_iterator end() const noexcept;
-  const_iterator cbegin() const noexcept;
-  const_iterator cend() const noexcept;
-
-  bool operator==(const Str &) const noexcept;
-  bool operator!=(const Str &) const noexcept;
-  bool operator<(const Str &) const noexcept;
-  bool operator<=(const Str &) const noexcept;
-  bool operator>(const Str &) const noexcept;
-  bool operator>=(const Str &) const noexcept;
-
-  void swap(Str &) noexcept;
-
-private:
-  class uninit;
-  Str(uninit) noexcept;
-  friend impl<Str>;
-
-  std::array<std::uintptr_t, 2> repr;
-};
-#endif // CXXBRIDGE1_RUST_STR
 
 #ifndef CXXBRIDGE1_RUST_SLICE
 #define CXXBRIDGE1_RUST_SLICE
@@ -464,7 +415,7 @@ enum class LogLevel : ::std::uint8_t {
 #endif // CXXBRIDGE1_ENUM_LogLevel
 
 extern "C" {
-void cxxbridge1$log_with_rs(::LogLevel level, ::rust::Str msg) noexcept;
+void cxxbridge1$log_with_rs(::LogLevel level, ::rust::Slice<const ::std::uint8_t> msg) noexcept;
 
 void cxxbridge1$exit_on_error(bool b) noexcept;
 
@@ -481,7 +432,7 @@ extern "C" {
 } // extern "C"
 } // namespace rust
 
-void log_with_rs(::LogLevel level, ::rust::Str msg) noexcept {
+void log_with_rs(::LogLevel level, ::rust::Slice<const ::std::uint8_t> msg) noexcept {
   cxxbridge1$log_with_rs(level, msg);
 }
 
