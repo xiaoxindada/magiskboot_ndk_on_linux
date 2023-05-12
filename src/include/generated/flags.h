@@ -3,6 +3,6 @@
 #define str(s)              quote(s)
 #define MAGISK_FULL_VER     MAGISK_VERSION "(" str(MAGISK_VER_CODE) ")"
 #define NAME_WITH_VER(name) str(name) " " MAGISK_FULL_VER
-#define MAGISK_VERSION      "1610092e"
+#define MAGISK_VERSION      "bd265105"
 #define MAGISK_VER_CODE     26101
 #define MAGISK_DEBUG        0
