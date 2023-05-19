@@ -36,8 +36,7 @@
 #error you should #include <sys/system_properties.h> instead
 #endif
 
-//#include <sys/system_properties.h>
-#include "system_properties.h"
+#include <api/system_properties.h>
 
 __BEGIN_DECLS
 
@@ -105,12 +104,6 @@ uint32_t __system_property_area_serial(void);
 */
 int __system_property_add(const char* __name, unsigned int __name_length, const char* __value, unsigned int __value_length);
 
-/* Delete a system property. Added in resetprop
-**
-** Returns 0 on success, -1 if the property area is full.
-*/
-int __system_property_delete(const char *__name, bool __trim_node);
-
 /* Update the value of a system property returned by
 ** __system_property_find.  Can only be done by a single process
 ** that has write access to the property area, and that process
@@ -120,6 +113,19 @@ int __system_property_delete(const char *__name, bool __trim_node);
 ** Returns 0 on success, -1 if the parameters are incorrect.
 */
 int __system_property_update(prop_info* __pi, const char* __value, unsigned int __value_length);
+
+/* Delete a system property.
+**
+** Returns 0 on success, -1 if the property area is full.
+*/
+int __system_property_delete(const char *__name, bool __prune);
+
+
+/* Get context of a property.
+**
+** Returns the context on success, nullptr if fail.
+**/
+const char* __system_property_get_context(const char* __name);
 
 /* Read the serial number of a system property returned by
 ** __system_property_find.

@@ -1,15 +1,7 @@
 #pragma once
 
-#include <stdio.h>
-#include <syscall.h>
-
-// Missing defines
-#ifndef PR_SET_VMA
-#define PR_SET_VMA 0x53564d41
-#endif
-#ifndef PR_SET_VMA_ANON_NAME
-#define PR_SET_VMA_ANON_NAME 0
-#endif
+#undef __INTRODUCED_IN
+#define __INTRODUCED_IN(...)
 
 // Rename symbols
 #pragma redefine_extname __system_property_set _system_property_set2

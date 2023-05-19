@@ -77,7 +77,7 @@ bool ContextsSerialized::MapSerialPropertyArea(bool access_rw, bool* fsetxattr_f
     serial_prop_area_ =
         prop_area::map_prop_area_rw(filename, "u:object_r:properties_serial:s0", fsetxattr_failed);
   } else {
-    serial_prop_area_ = prop_area::map_prop_area(filename);
+    serial_prop_area_ = prop_area::map_prop_area(filename, &rw_);
   }
   return serial_prop_area_;
 }
@@ -142,6 +142,12 @@ prop_area* ContextsSerialized::GetPropAreaForName(const char* name) {
     context_node->Open(false, nullptr);
   }
   return context_node->pa();
+}
+
+const char* ContextsSerialized::GetContextForName(const char* name) {
+  const char* context;
+  property_info_area_file_->GetPropertyInfo(name, &context, nullptr);
+  return context;
 }
 
 void ContextsSerialized::ForEach(void (*propfn)(const prop_info* pi, void* cookie), void* cookie) {

@@ -38,25 +38,24 @@
 #include <sys/uio.h>
 #include <sys/un.h>
 #define _REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_
-//#include <sys/_system_properties.h>
-#include <_system_properties.h>
+#include <api/_system_properties.h>
 #include <unistd.h>
 
 #include <async_safe/log.h>
+#include <async_safe/CHECK.h>
 
 #include "private/bionic_defs.h"
-#include "private/bionic_macros.h"
+#include "platform/bionic/macros.h"
+#include "private/ScopedFd.h"
 
 static const char property_service_socket[] = "/dev/socket/" PROP_SERVICE_NAME;
 static const char* kServiceVersionPropertyName = "ro.property_service.version";
 
-#define CHECK(x)  /* NOP */
-
 class PropertyServiceConnection {
  public:
   PropertyServiceConnection() : last_error_(0) {
-    socket_ = ::socket(AF_LOCAL, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (socket_ == -1) {
+    socket_.reset(::socket(AF_LOCAL, SOCK_STREAM | SOCK_CLOEXEC, 0));
+    if (socket_.get() == -1) {
       last_error_ = errno;
       return;
     }
@@ -68,15 +67,15 @@ class PropertyServiceConnection {
     addr.sun_family = AF_LOCAL;
     socklen_t alen = namelen + offsetof(sockaddr_un, sun_path) + 1;
 
-    if (TEMP_FAILURE_RETRY(connect(socket_, reinterpret_cast<sockaddr*>(&addr), alen)) == -1) {
+    if (TEMP_FAILURE_RETRY(connect(socket_.get(),
+                                   reinterpret_cast<sockaddr*>(&addr), alen)) == -1) {
       last_error_ = errno;
-      close(socket_);
-      socket_ = -1;
+      socket_.reset();
     }
   }
 
   bool IsValid() {
-    return socket_ != -1;
+    return socket_.get() != -1;
   }
 
   int GetLastError() {
@@ -84,18 +83,12 @@ class PropertyServiceConnection {
   }
 
   bool RecvInt32(int32_t* value) {
-    int result = TEMP_FAILURE_RETRY(recv(socket_, value, sizeof(*value), MSG_WAITALL));
+    int result = TEMP_FAILURE_RETRY(recv(socket_.get(), value, sizeof(*value), MSG_WAITALL));
     return CheckSendRecvResult(result, sizeof(*value));
   }
 
   int socket() {
-    return socket_;
-  }
-
-  ~PropertyServiceConnection() {
-    if (socket_ != -1) {
-      close(socket_);
-    }
+    return socket_.get();
   }
 
  private:
@@ -111,7 +104,7 @@ class PropertyServiceConnection {
     return last_error_ == 0;
   }
 
-  int socket_;
+  ScopedFd socket_;
   int last_error_;
 
   friend class SocketWriter;
@@ -216,7 +209,6 @@ static int send_prop_msg(const prop_msg* msg) {
       // mostly for ctl.* properties, but we do try and wait 250
       // ms so callers who do read-after-write can reliably see
       // what they've written.  Most of the time.
-      // TODO: fix the system properties design.
       async_safe_format_log(ANDROID_LOG_WARN, "libc",
                             "Property service has timed out while trying to set \"%s\" to \"%s\"",
                             msg->name, msg->value);
@@ -230,7 +222,7 @@ static int send_prop_msg(const prop_msg* msg) {
 static constexpr uint32_t kProtocolVersion1 = 1;
 static constexpr uint32_t kProtocolVersion2 = 2;  // current
 
-static atomic_uint_least32_t g_propservice_protocol_version(0);
+static atomic_uint_least32_t g_propservice_protocol_version = 0;
 
 static void detect_protocol_version() {
   char value[PROP_VALUE_MAX];

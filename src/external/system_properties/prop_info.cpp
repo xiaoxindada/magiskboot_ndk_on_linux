@@ -26,34 +26,30 @@
  * SUCH DAMAGE.
  */
 
-#pragma once
+#include "system_properties/prop_info.h"
 
-#include "contexts.h"
+#include <string.h>
 
-struct PrefixNode;
-class ContextListNode;
+constexpr static const char kLongLegacyError[] =
+    "Must use __system_property_read_callback() to read";
+static_assert(sizeof(kLongLegacyError) < prop_info::kLongLegacyErrorBufferSize,
+              "Error message for long properties read by legacy libc must fit within 56 chars");
 
-class ContextsSplit : public Contexts {
- public:
-  virtual ~ContextsSplit() override {
-  }
+prop_info::prop_info(const char* name, uint32_t namelen, const char* value, uint32_t valuelen) {
+  memcpy(this->name, name, namelen);
+  this->name[namelen] = '\0';
+  atomic_init(&this->serial, valuelen << 24);
+  memcpy(this->value, value, valuelen);
+  this->value[valuelen] = '\0';
+}
 
-  virtual bool Initialize(bool writable, const char* filename, bool* fsetxattr_failed) override;
-  virtual prop_area* GetPropAreaForName(const char* name) override;
-  virtual prop_area* GetSerialPropArea() override {
-    return serial_prop_area_;
-  }
-  virtual void ForEach(void (*propfn)(const prop_info* pi, void* cookie), void* cookie) override;
-  virtual void ResetAccess() override;
-  virtual void FreeAndUnmap() override;
+prop_info::prop_info(const char* name, uint32_t namelen, uint32_t long_offset) {
+  memcpy(this->name, name, namelen);
+  this->name[namelen] = '\0';
 
- private:
-  bool MapSerialPropertyArea(bool access_rw, bool* fsetxattr_failed);
-  bool InitializePropertiesFromFile(const char* filename);
-  bool InitializeProperties();
+  auto error_value_len = sizeof(kLongLegacyError) - 1;
+  atomic_init(&this->serial, error_value_len << 24 | kLongFlag);
+  memcpy(this->long_property.error_message, kLongLegacyError, sizeof(kLongLegacyError));
 
-  PrefixNode* prefixes_ = nullptr;
-  ContextListNode* contexts_ = nullptr;
-  prop_area* serial_prop_area_ = nullptr;
-  const char* filename_ = nullptr;
-};
+  this->long_property.offset = long_offset;
+}

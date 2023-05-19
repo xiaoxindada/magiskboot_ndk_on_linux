@@ -33,7 +33,7 @@
 #include <string.h>
 #include <sys/mman.h>
 
-#include "private/bionic_macros.h"
+#include "platform/bionic/macros.h"
 
 #include "prop_info.h"
 
@@ -93,7 +93,7 @@ class prop_area {
  public:
   static prop_area* map_prop_area_rw(const char* filename, const char* context,
                                      bool* fsetxattr_failed);
-  static prop_area* map_prop_area(const char* filename);
+  static prop_area* map_prop_area(const char* filename, bool *is_rw);
   static void unmap_prop_area(prop_area** pa) {
     if (*pa) {
       munmap(*pa, pa_size_);
@@ -106,11 +106,25 @@ class prop_area {
     memset(reserved_, 0, sizeof(reserved_));
     // Allocate enough space for the root node.
     bytes_used_ = sizeof(prop_bt);
+    // To make property reads wait-free, we reserve a
+    // PROP_VALUE_MAX-sized block of memory, the "dirty backup area",
+    // just after the root node. When we're about to modify a
+    // property, we copy the old value into the dirty backup area and
+    // copy the new value into the prop_info structure. Before
+    // starting the latter copy, we mark the property's serial as
+    // being dirty. If a reader comes along while we're doing the
+    // property update and sees a dirty serial, the reader copies from
+    // the dirty backup area instead of the property value
+    // proper. After the copy, the reader checks whether the property
+    // serial is the same: if it is, the dirty backup area hasn't been
+    // reused for something else and we can complete the
+    // read immediately.
+    bytes_used_ +=  __BIONIC_ALIGN(PROP_VALUE_MAX, sizeof(uint_least32_t));
   }
 
   const prop_info* find(const char* name);
   bool add(const char* name, unsigned int namelen, const char* value, unsigned int valuelen);
-  bool rm(const char *name, bool trim_node);
+  bool remove(const char* name, bool prune);
 
   bool foreach (void (*propfn)(const prop_info* pi, void* cookie), void* cookie);
 
@@ -123,9 +137,12 @@ class prop_area {
   uint32_t version() const {
     return version_;
   }
+  char* dirty_backup_area() {
+    return data_ + sizeof (prop_bt);
+  }
 
  private:
-  static prop_area* map_fd_ro(const int fd);
+  static prop_area* map_fd_ro(const int fd, bool rw);
 
   void* allocate_obj(const size_t size, uint_least32_t* const off);
   prop_bt* new_prop_bt(const char* name, uint32_t namelen, uint_least32_t* const off);
@@ -137,19 +154,16 @@ class prop_area {
 
   prop_bt* root_node();
 
-  /* resetprop new: traverse through the trie and find the node */
-  prop_bt *find_prop_bt(prop_bt *const bt, const char* name, bool alloc_if_needed);
-
-  /* resetprop new: trim unneeded nodes from trie */
-  bool prune_node(prop_bt *const node);
-
   prop_bt* find_prop_bt(prop_bt* const bt, const char* name, uint32_t namelen, bool alloc_if_needed);
+  prop_bt* traverse_trie(prop_bt* const trie, const char* name, bool alloc_if_needed);
 
   const prop_info* find_property(prop_bt* const trie, const char* name, uint32_t namelen,
                                  const char* value, uint32_t valuelen, bool alloc_if_needed);
 
   bool foreach_property(prop_bt* const trie, void (*propfn)(const prop_info* pi, void* cookie),
                         void* cookie);
+
+  bool prune_trie(prop_bt* const node);
 
   // The original design doesn't include pa_size or pa_data_size in the prop_area struct itself.
   // Since we'll need to be backwards compatible with that design, we don't gain much by adding it

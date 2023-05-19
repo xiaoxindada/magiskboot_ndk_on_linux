@@ -114,8 +114,6 @@ static void ListFree(List** list) {
 }
 
 // The below two functions are duplicated from label_support.c in libselinux.
-// TODO: Find a location suitable for these functions such that both libc and
-// libselinux can share a common source file.
 
 // The read_spec_entries and read_spec_entry functions may be used to
 // replace sscanf to read entries from spec files. The file and
@@ -205,7 +203,7 @@ bool ContextsSplit::MapSerialPropertyArea(bool access_rw, bool* fsetxattr_failed
     serial_prop_area_ =
         prop_area::map_prop_area_rw(filename, "u:object_r:properties_serial:s0", fsetxattr_failed);
   } else {
-    serial_prop_area_ = prop_area::map_prop_area(filename);
+    serial_prop_area_ = prop_area::map_prop_area(filename, &rw_);
   }
   return serial_prop_area_;
 }
@@ -271,14 +269,11 @@ bool ContextsSplit::InitializeProperties() {
     if (!InitializePropertiesFromFile("/system/etc/selinux/plat_property_contexts")) {
       return false;
     }
-    // Don't check for failure here, so we always have a sane list of properties.
+    // Don't check for failure here, since we don't always have all of these partitions.
     // E.g. In case of recovery, the vendor partition will not have mounted and we
     // still need the system / platform properties to function.
     if (access("/vendor/etc/selinux/vendor_property_contexts", R_OK) != -1) {
       InitializePropertiesFromFile("/vendor/etc/selinux/vendor_property_contexts");
-    } else {
-      // Fallback to nonplat_* if vendor_* doesn't exist.
-      InitializePropertiesFromFile("/vendor/etc/selinux/nonplat_property_contexts");
     }
   } else {
     if (!InitializePropertiesFromFile("/plat_property_contexts")) {
@@ -286,9 +281,6 @@ bool ContextsSplit::InitializeProperties() {
     }
     if (access("/vendor_property_contexts", R_OK) != -1) {
       InitializePropertiesFromFile("/vendor_property_contexts");
-    } else {
-      // Fallback to nonplat_* if vendor_* doesn't exist.
-      InitializePropertiesFromFile("/nonplat_property_contexts");
     }
   }
 
@@ -326,10 +318,16 @@ bool ContextsSplit::Initialize(bool writable, const char* filename, bool* fsetxa
   return true;
 }
 
-prop_area* ContextsSplit::GetPropAreaForName(const char* name) {
+PrefixNode* ContextsSplit::GetPrefixNodeForName(const char* name) {
   auto entry = ListFind(prefixes_, [name](PrefixNode* l) {
     return l->prefix[0] == '*' || !strncmp(l->prefix, name, l->prefix_len);
   });
+
+  return entry;
+}
+
+prop_area* ContextsSplit::GetPropAreaForName(const char* name) {
+  auto entry = GetPrefixNodeForName(name);
   if (!entry) {
     return nullptr;
   }
@@ -342,6 +340,14 @@ prop_area* ContextsSplit::GetPropAreaForName(const char* name) {
     cnode->Open(false, nullptr);
   }
   return cnode->pa();
+}
+
+const char* ContextsSplit::GetContextForName(const char* name) {
+  auto entry = GetPrefixNodeForName(name);
+  if (!entry) {
+    return nullptr;
+  }
+  return entry->context->context();
 }
 
 void ContextsSplit::ForEach(void (*propfn)(const prop_info* pi, void* cookie), void* cookie) {

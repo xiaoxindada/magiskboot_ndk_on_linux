@@ -30,7 +30,7 @@
 
 #include <stdatomic.h>
 #include "private/bionic_futex.h"
-#include "private/bionic_macros.h"
+#include "platform/bionic/macros.h"
 
 // Lock is used in places like pthread_rwlock_t, which can be initialized without calling
 // an initialization function. So make sure Lock can be initialized by setting its memory to 0.
@@ -72,6 +72,12 @@ class Lock {
   void unlock() {
     bool shared = process_shared; /* cache to local variable */
     if (atomic_exchange_explicit(&state, Unlocked, memory_order_release) == LockedWithWaiter) {
+      // The Lock object may have been deallocated between the atomic exchange and the futex wake
+      // call, so avoid accessing any fields of Lock here. In that case, the wake call may target
+      // unmapped memory or trigger a spurious futex wakeup. The same situation happens with
+      // pthread mutexes. References:
+      //  - https://lkml.org/lkml/2014/11/27/472
+      //  - http://austingroupbugs.net/view.php?id=811#c2267
       __futex_wake_ex(&state, shared, 1);
     }
   }

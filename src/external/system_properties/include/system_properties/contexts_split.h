@@ -26,30 +26,37 @@
  * SUCH DAMAGE.
  */
 
-#include "system_properties/prop_info.h"
+#pragma once
 
-#include <string.h>
+#include "contexts.h"
 
-constexpr static const char kLongLegacyError[] =
-    "Must use __system_property_read_callback() to read";
-static_assert(sizeof(kLongLegacyError) < prop_info::kLongLegacyErrorBufferSize,
-              "Error message for long properties read by legacy libc must fit within 56 chars");
+struct PrefixNode;
+class ContextListNode;
 
-prop_info::prop_info(const char* name, uint32_t namelen, const char* value, uint32_t valuelen) {
-  memcpy(this->name, name, namelen);
-  this->name[namelen] = '\0';
-  atomic_init(&this->serial, valuelen << 24);
-  memcpy(this->value, value, valuelen);
-  this->value[valuelen] = '\0';
-}
+class ContextsSplit : public Contexts {
+ public:
+  virtual ~ContextsSplit() override {
+  }
 
-prop_info::prop_info(const char* name, uint32_t namelen, uint32_t long_offset) {
-  memcpy(this->name, name, namelen);
-  this->name[namelen] = '\0';
+  virtual bool Initialize(bool writable, const char* filename, bool* fsetxattr_failed) override;
+  virtual prop_area* GetPropAreaForName(const char* name) override;
+  virtual prop_area* GetSerialPropArea() override {
+    return serial_prop_area_;
+  }
+  virtual const char* GetContextForName(const char* name) override;
+  virtual void ForEach(void (*propfn)(const prop_info* pi, void* cookie), void* cookie) override;
+  virtual void ResetAccess() override;
+  virtual void FreeAndUnmap() override;
 
-  atomic_uint_least32_t error_value_len = sizeof(kLongLegacyError) - 1;
-  atomic_init(&this->serial, error_value_len << 24 | kLongFlag);
-  memcpy(this->long_property.error_message, kLongLegacyError, sizeof(kLongLegacyError));
+  PrefixNode* GetPrefixNodeForName(const char* name);
 
-  this->long_property.offset = long_offset;
-}
+ protected:
+  bool MapSerialPropertyArea(bool access_rw, bool* fsetxattr_failed);
+  bool InitializePropertiesFromFile(const char* filename);
+  bool InitializeProperties();
+
+  PrefixNode* prefixes_ = nullptr;
+  ContextListNode* contexts_ = nullptr;
+  prop_area* serial_prop_area_ = nullptr;
+  const char* filename_ = nullptr;
+};

@@ -27,8 +27,7 @@
  */
 
 #define _REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_
-//#include <sys/_system_properties.h>
-#include <_system_properties.h>
+#include <api/_system_properties.h>
 
 #include <system_properties/prop_area.h>
 #include <system_properties/system_properties.h>
@@ -94,19 +93,30 @@ int __system_property_update(prop_info* pi, const char* value, unsigned int len)
 }
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
+int __system_property_delete(const char *name, bool prune) {
+  return system_properties.Delete(name, prune);
+}
+
+__BIONIC_WEAK_FOR_NATIVE_BRIDGE
+const char* __system_property_get_context(const char *name) {
+  return system_properties.GetContext(name);
+}
+
+__BIONIC_WEAK_FOR_NATIVE_BRIDGE
 int __system_property_add(const char* name, unsigned int namelen, const char* value,
                           unsigned int valuelen) {
   return system_properties.Add(name, namelen, value, valuelen);
 }
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
-int __system_property_delete(const char *name, bool trim_node) {
-  return system_properties.Delete(name, trim_node);
-}
-
-__BIONIC_WEAK_FOR_NATIVE_BRIDGE
 uint32_t __system_property_serial(const prop_info* pi) {
-  return system_properties.Serial(pi);
+  // N.B. a previous version of this function was much heavier-weight
+  // and enforced acquire semantics, so give our load here acquire
+  // semantics just in case somebody depends on
+  // __system_property_serial enforcing memory order, e.g., in case
+  // someone spins on the result of this function changing before
+  // loading some value.
+  return atomic_load_explicit(&pi->serial, memory_order_acquire);
 }
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
