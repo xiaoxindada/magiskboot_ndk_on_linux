@@ -54,6 +54,7 @@ load("@prelude//julia:julia.bzl", _julia_extra_attributes = "extra_attributes", 
 
 # Kotlin
 load("@prelude//kotlin:kotlin.bzl", _kotlin_extra_attributes = "extra_attributes", _kotlin_implemented_rules = "implemented_rules")
+load("@prelude//linking:execution_preference.bzl", "link_execution_preference_attr")
 
 # Linking
 load("@prelude//linking:link_info.bzl", "LinkOrdering")
@@ -276,6 +277,7 @@ def _python_executable_attrs():
 
     # allow non-default value for the args below
     updated_attrs.update({
+        "binary_linker_flags": attrs.list(attrs.arg(), default = []),
         "compiler_flags": attrs.list(attrs.arg(), default = []),
         "constraint_overrides": attrs.list(attrs.string(), default = []),
         "cxx_main": attrs.source(default = "prelude//python/tools:embedded_main.cpp"),
@@ -288,7 +290,7 @@ def _python_executable_attrs():
         "link_group_min_binary_node_count": attrs.option(attrs.int(), default = None),
         "make_pex": attrs.option(attrs.exec_dep(providers = [RunInfo]), default = None),
         # entries for the generated __manifest__ python module
-        "manifest_module_entries": attrs.option(attrs.dict(key = attrs.string(), value = attrs.any()), default = None),
+        "manifest_module_entries": attrs.option(attrs.dict(key = attrs.string(), value = attrs.dict(key = attrs.string(), value = attrs.any())), default = None),
         "native_link_strategy": attrs.option(attrs.enum(NativeLinkStrategy), default = None),
         "package_split_dwarf_dwp": attrs.bool(default = False),
         "par_style": attrs.option(attrs.string(), default = None),
@@ -326,9 +328,9 @@ def _cxx_binary_and_test_attrs():
         "bolt_gdb_index": attrs.option(attrs.source(), default = None),
         "bolt_profile": attrs.option(attrs.source(), default = None),
         "enable_distributed_thinlto": attrs.bool(default = False),
+        "link_execution_preference": link_execution_preference_attr(),
         "link_group_map": link_group_map_attr(),
         "link_group_min_binary_node_count": attrs.option(attrs.int(), default = None),
-        "link_locally_override": attrs.option(attrs.bool(), default = None),
         "link_ordering": attrs.option(attrs.enum(LinkOrdering.values()), default = None),
         "link_whole": attrs.default_only(attrs.bool(default = False)),
         "precompiled_header": attrs.option(attrs.dep(providers = [CPrecompiledHeaderInfo]), default = None),
@@ -379,12 +381,14 @@ inlined_extra_attributes = {
         "force_emit_omnibus_shared_root": attrs.bool(default = False),
         "header_mode": attrs.option(attrs.enum(HeaderMode.values()), default = None),
         "link_deps_query_whole": attrs.bool(default = False),
+        "link_execution_preference": link_execution_preference_attr(),
         "link_group_map": link_group_map_attr(),
         "link_ordering": attrs.option(attrs.enum(LinkOrdering.values()), default = None),
         "precompiled_header": attrs.option(attrs.dep(providers = [CPrecompiledHeaderInfo]), default = None),
         "prefer_stripped_objects": attrs.bool(default = False),
         "preferred_linkage": attrs.enum(Linkage, default = "any"),
         "resources": attrs.named_set(attrs.one_of(attrs.dep(), attrs.source(allow_directory = True)), sorted = True, default = []),
+        "supports_header_symlink_subtarget": attrs.bool(default = False),
         "supports_python_dlopen": attrs.option(attrs.bool(), default = None),
         "supports_shlib_interfaces": attrs.bool(default = True),
         "_cxx_hacks": attrs.default_only(attrs.dep(default = "prelude//cxx/tools:cxx_hacks")),
@@ -429,6 +433,7 @@ inlined_extra_attributes = {
         "_haskell_toolchain": toolchains_common.haskell(),
     },
     "haskell_ide": {
+        "include_projects": attrs.list(attrs.dep(), default = []),
         "_haskell_toolchain": toolchains_common.haskell(),
     },
     "haskell_library": {

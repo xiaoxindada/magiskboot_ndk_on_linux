@@ -22,11 +22,12 @@ load("@prelude//:prelude.bzl", "native")
 load("@prelude//decls:common.bzl", "buck")
 load("@prelude//rust:rust_toolchain.bzl", "RustToolchainInfo")
 load("@prelude//rust:targets.bzl", "targets")
+load("@prelude//decls/toolchains_common.bzl", "toolchains_common")
 
 def _cargo_buildscript_impl(ctx: "context") -> ["provider"]:
-    toolchain_info = ctx.attrs.rust_toolchain[RustToolchainInfo]
+    toolchain_info = ctx.attrs._rust_toolchain[RustToolchainInfo]
 
-    manifest_dir = ctx.attrs.manifest_dir[DefaultInfo].default_outputs[0]
+    cwd = ctx.actions.declare_output("cwd", dir = True)
     out_dir = ctx.actions.declare_output("OUT_DIR", dir = True)
     rustc_flags = ctx.actions.declare_output("rustc_flags")
 
@@ -34,6 +35,8 @@ def _cargo_buildscript_impl(ctx: "context") -> ["provider"]:
         ctx.attrs.runner[RunInfo],
         cmd_args("--buildscript=", ctx.attrs.buildscript[RunInfo], delimiter = ""),
         cmd_args("--rustc-cfg=", ctx.attrs.rustc_cfg[DefaultInfo].default_outputs[0], delimiter = ""),
+        cmd_args("--manifest-dir=", ctx.attrs.manifest_dir[DefaultInfo].default_outputs[0], delimiter = ""),
+        cmd_args("--create-cwd=", cwd.as_output(), delimiter = ""),
         cmd_args("--outfile=", rustc_flags.as_output(), delimiter = ""),
     )
 
@@ -41,11 +44,10 @@ def _cargo_buildscript_impl(ctx: "context") -> ["provider"]:
 
     env = {}
     env["CARGO"] = "/bin/false"
-    env["CARGO_MANIFEST_DIR"] = manifest_dir
     env["CARGO_PKG_NAME"] = ctx.attrs.package_name
     env["CARGO_PKG_VERSION"] = ctx.attrs.version
     env["OUT_DIR"] = out_dir.as_output()
-    env["RUSTC"] = cmd_args(toolchain_info.compiler).relative_to(manifest_dir)
+    env["RUSTC"] = cmd_args(toolchain_info.compiler).relative_to(cwd)
     env["RUSTC_LINKER"] = "/bin/false"
     env["RUST_BACKTRACE"] = "1"
     env["TARGET"] = toolchain_info.rustc_target_triple
@@ -61,7 +63,7 @@ def _cargo_buildscript_impl(ctx: "context") -> ["provider"]:
     # Environment variables specified in the target's attributes get priority
     # over all the above.
     for k, v in ctx.attrs.env.items():
-        env[k] = cmd_args(v).relative_to(manifest_dir)
+        env[k] = cmd_args(v).relative_to(cwd)
 
     ctx.actions.run(
         cmd,
@@ -86,10 +88,12 @@ _cargo_buildscript_rule = rule(
         "manifest_dir": attrs.dep(),
         "package_name": attrs.string(),
         "runner": attrs.default_only(attrs.exec_dep(providers = [RunInfo], default = "prelude//rust/tools:buildscript_run")),
-        "rust_toolchain": attrs.default_only(attrs.toolchain_dep(default = "toolchains//:rust", providers = [RustToolchainInfo])),
+        # *IMPORTANT* rustc_cfg must be a `dep` and not an `exec_dep` because
+        # we want the `rustc --cfg` for the target platform, not the exec platform.
         "rustc_cfg": attrs.default_only(attrs.dep(default = "prelude//rust/tools:rustc_cfg")),
         "version": attrs.string(),
         "_exec_os_type": buck.exec_os_type_arg(),
+        "_rust_toolchain": toolchains_common.rust(),
     },
 )
 
@@ -116,7 +120,11 @@ def buildscript_run(
                 path.removeprefix(prefix_with_trailing_slash): path
                 for path in glob(
                     include = ["{}/**".format(prefix)],
-                    exclude = ["{}/METADATA.bzl".format(prefix)],
+                    exclude = [
+                        "{}/METADATA.bzl".format(prefix),
+                        "{}/rust-toolchain".format(prefix),
+                        "{}/rust-toolchain.toml".format(prefix),
+                    ],
                 )
             },
             copy = False,

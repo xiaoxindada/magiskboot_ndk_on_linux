@@ -7,6 +7,7 @@
 
 load("@prelude//apple:apple_dsym.bzl", "AppleDebuggableInfo", "DEBUGINFO_SUBTARGET", "DSYM_SUBTARGET", "get_apple_dsym")
 load("@prelude//apple:apple_stripping.bzl", "apple_strip_args")
+# @oss-disable: load("@prelude//apple/meta_only:linker_outputs.bzl", "add_extra_linker_outputs") 
 load(
     "@prelude//apple/swift:swift_compilation.bzl",
     "SwiftDependencyInfo",  # @unused Used as a type
@@ -18,7 +19,11 @@ load(
     "uses_explicit_modules",
 )
 load("@prelude//cxx:cxx_library.bzl", "cxx_library_parameterized")
-load("@prelude//cxx:cxx_library_utility.bzl", "cxx_attr_deps", "cxx_attr_exported_deps")
+load(
+    "@prelude//cxx:cxx_library_utility.bzl",
+    "cxx_attr_deps",
+    "cxx_attr_exported_deps",
+)
 load("@prelude//cxx:cxx_sources.bzl", "get_srcs_with_flags")
 load(
     "@prelude//cxx:cxx_types.bzl",
@@ -31,12 +36,17 @@ load(
 load(
     "@prelude//cxx:debug.bzl",
     "ExternalDebugInfoTSet",  # @unused Used as a type
+    "maybe_external_debug_info",
     "project_external_debug_info",
 )
 load("@prelude//cxx:headers.bzl", "cxx_attr_exported_headers")
 load(
     "@prelude//cxx:link.bzl",
     "CxxLinkerMapData",  # @unused Used as a type
+)
+load(
+    "@prelude//cxx:link_groups.bzl",
+    "get_link_group",
 )
 load(
     "@prelude//cxx:linker.bzl",
@@ -47,7 +57,10 @@ load(
     "CPreprocessor",
     "CPreprocessorInfo",  # @unused Used as a type
 )
-load("@prelude//linking:link_info.bzl", "LinkStyle")
+load(
+    "@prelude//linking:link_info.bzl",
+    "LinkStyle",
+)
 load(":apple_bundle_types.bzl", "AppleBundleLinkerMapInfo", "AppleMinDeploymentVersionInfo")
 load(":apple_frameworks.bzl", "get_framework_search_path_flags")
 load(":apple_modular_utility.bzl", "MODULE_CACHE_PATH")
@@ -142,7 +155,18 @@ def apple_library_rule_constructor_params_and_swift_providers(ctx: "context", pa
 
     # When linking, we expect each linked object to provide the transitively required swiftmodule AST entries for linking.
     swiftmodule_linkable = get_swiftmodule_linkable(ctx, swift_compile.dependency_info) if swift_compile else None
-    swift_dependency_info = swift_compile.dependency_info if swift_compile else [get_swift_dependency_info(ctx, exported_pre, None)]
+
+    swift_static_external_debug_info = _get_swift_static_external_debug_info(ctx, swift_compile.swiftmodule) if swift_compile else []
+
+    # When determing the debug info for shared libraries, if the shared library is a link group, we rely on the link group links to
+    # obtain the debug info for linked libraries and only need to provide any swift debug info for this library itself. Otherwise
+    # if linking standard shared, we need to obtain the transitive debug info.
+    swift_dependency_info = swift_compile.dependency_info if swift_compile else get_swift_dependency_info(ctx, exported_pre, None)
+    if get_link_group(ctx):
+        swift_shared_external_debug_info = swift_static_external_debug_info
+    else:
+        swift_shared_external_debug_info = _get_swift_shared_external_debug_info(swift_dependency_info) if swift_dependency_info else []
+
     swift_argsfile = swift_compile.swift_argsfile if swift_compile else None
 
     modular_pre = CPreprocessor(
@@ -171,7 +195,7 @@ def apple_library_rule_constructor_params_and_swift_providers(ctx: "context", pa
             exported_pre,
         )
         providers = [swift_pcm_uncompile_info] if swift_pcm_uncompile_info else []
-        return providers + swift_dependency_info
+        return providers + [swift_dependency_info]
 
     framework_search_path_pre = CPreprocessor(
         args = [get_framework_search_path_flags(ctx)],
@@ -195,7 +219,8 @@ def apple_library_rule_constructor_params_and_swift_providers(ctx: "context", pa
             # We need to add any swift modules that we include in the link, as
             # these will end up as `N_AST` entries that `dsymutil` will need to
             # follow.
-            external_debug_info = _get_external_debug_info(swift_dependency_info),
+            static_external_debug_info = swift_static_external_debug_info,
+            shared_external_debug_info = swift_shared_external_debug_info,
             subtargets = {
                 "swift-compile": [DefaultInfo(default_output = swift_compile.object_file if swift_compile else None)],
             },
@@ -213,7 +238,14 @@ def apple_library_rule_constructor_params_and_swift_providers(ctx: "context", pa
         generate_providers = params.generate_providers,
         # Some apple rules rely on `static` libs *not* following dependents.
         link_groups_force_static_follows_dependents = False,
+        extra_linker_outputs_factory = _get_extra_linker_flags_and_outputs,
     )
+
+def _get_extra_linker_flags_and_outputs(
+        _ctx: "context") -> (["_arglike"], {str.type: [DefaultInfo.type]}): # @oss-enable
+        # @oss-disable: ctx: "context") -> (["_arglike"], {str.type: [DefaultInfo.type]}): 
+    # @oss-disable: return add_extra_linker_outputs(ctx) 
+    return [], {} # @oss-enable
 
 def _filter_swift_srcs(ctx: "context") -> (["CxxSrcWithFlags"], ["CxxSrcWithFlags"]):
     cxx_srcs = []
@@ -263,12 +295,15 @@ def _get_shared_link_style_sub_targets_and_providers(
         providers += [AppleBundleLinkerMapInfo(linker_maps = [linker_map.map])]
     return (subtargets, providers)
 
-def _get_external_debug_info(swift_dependency_infos: [SwiftDependencyInfo.type]) -> [ExternalDebugInfoTSet.type]:
-    tsets = []
-    for info in swift_dependency_infos:
-        if info.external_debug_info:
-            tsets.append(info.external_debug_info)
-    return tsets
+def _get_swift_static_external_debug_info(ctx: "context", swiftmodule: "artifact") -> [ExternalDebugInfoTSet.type]:
+    return [maybe_external_debug_info(
+        actions = ctx.actions,
+        label = ctx.label,
+        artifacts = [swiftmodule],
+    )]
+
+def _get_swift_shared_external_debug_info(swift_dependency_info: SwiftDependencyInfo.type) -> [ExternalDebugInfoTSet.type]:
+    return [swift_dependency_info.external_debug_info] if swift_dependency_info.external_debug_info else []
 
 def _get_linker_flags(ctx: "context") -> "cmd_args":
     return cmd_args(get_min_deployment_version_target_linker_flags(ctx))

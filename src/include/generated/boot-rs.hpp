@@ -1,4 +1,5 @@
 #pragma once
+#include "compress.hpp"
 #include <cstdint>
 
 namespace rust {

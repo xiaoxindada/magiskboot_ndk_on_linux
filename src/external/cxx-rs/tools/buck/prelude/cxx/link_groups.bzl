@@ -21,6 +21,7 @@ load(
     "SharedLibLinkable",
     "get_actual_link_style",
     "set_linkable_link_whole",
+    "wrap_link_info",
     "wrap_with_no_as_needed_shared_libs_flags",
     get_link_info_from_link_infos = "get_link_info",
 )
@@ -496,7 +497,6 @@ def _create_link_group(
         link_style: LinkStyle.type = LinkStyle("static_pic"),
         link_group_libs: {str.type: (["label", None], LinkInfos.type)} = {},
         prefer_stripped_objects: bool.type = False,
-        prefer_local: bool.type = False,
         category_suffix: [str.type, None] = None) -> LinkedObject.type:
     """
     Link a link group library, described by a `LinkGroupLibSpec`.  This is
@@ -567,14 +567,13 @@ def _create_link_group(
     inputs.extend(get_filtered_links(filtered_labels_to_links_map, public_nodes))
 
     # link the rule
-    result, _ = cxx_link_shared_library(
+    result, _, _ = cxx_link_shared_library(
         ctx,
         ctx.actions.declare_output(paths.join("__link_groups__", spec.name)),
         name = spec.name if spec.is_shared_lib else None,
         links = [LinkArgs(infos = inputs)],
         category_suffix = category_suffix,
         identifier = spec.name,
-        prefer_local = prefer_local,
         enable_distributed_thinlto = spec.group.attrs.enable_distributed_thinlto,
     )
     return result
@@ -749,14 +748,15 @@ def create_link_groups(
         else:
             shlib_for_link = link_group_lib.output
 
+        link_info = LinkInfo(
+            linkables = [SharedLibLinkable(lib = shlib_for_link)],
+        )
         linked_link_groups[link_group_spec.group.name] = _LinkedLinkGroup(
             artifact = link_group_lib,
             library = None if not link_group_spec.is_shared_lib else LinkGroupLib(
                 shared_libs = {link_group_spec.name: link_group_lib},
                 shared_link_infos = LinkInfos(
-                    default = LinkInfo(
-                        linkables = [SharedLibLinkable(lib = shlib_for_link)],
-                    ),
+                    default = wrap_link_info(link_info, pre_flags = link_group_spec.group.attrs.linker_flags),
                 ),
             ),
         )

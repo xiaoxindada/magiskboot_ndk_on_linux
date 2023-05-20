@@ -50,6 +50,7 @@ LinkerInfo = provider(fields = [
     "requires_archives",
     "requires_objects",
     "supports_distributed_thinlto",
+    "supports_pic",
     "independent_shlib_interface_linker_flags",
     "type",  # of "LinkerType" type
     "use_archiver_flags",
@@ -117,6 +118,13 @@ DistLtoToolsInfo = provider(
     fields = ["planner", "opt", "prepare", "copy"],
 )
 
+CxxObjectFormat = enum(
+    "native",
+    "bitcode",
+    "embedded-bitcode",
+    "swift",
+)
+
 # TODO(T110378094): We should consider if we can change this from a hardcoded
 # list of compiler_info to something more general. We could maybe do a list of
 # compiler_info where each one also declares what extensions it supports.
@@ -129,6 +137,7 @@ CxxToolchainInfo = provider(fields = [
     "header_mode",
     "headers_as_raw_headers_mode",
     "linker_info",
+    "object_format",
     "binary_utilities_info",
     "c_compiler_info",
     "cxx_compiler_info",
@@ -138,6 +147,7 @@ CxxToolchainInfo = provider(fields = [
     "cuda_compiler_info",
     "mk_comp_db",
     "mk_hmap",
+    "llvm_link",
     "dist_lto_tools_info",
     "use_dep_files",
     "clang_trace",
@@ -175,6 +185,7 @@ def cxx_toolchain_infos(
         as_compiler_info = None,
         hip_compiler_info = None,
         cuda_compiler_info = None,
+        object_format = CxxObjectFormat("native"),
         mk_comp_db = None,
         mk_hmap = None,
         use_distributed_thinlto = False,
@@ -186,6 +197,7 @@ def cxx_toolchain_infos(
         dist_lto_tools_info: [DistLtoToolsInfo.type, None] = None,
         split_debug_mode = SplitDebugMode("none"),
         bolt_enabled = False,
+        llvm_link = None,
         platform_deps_aliases = []):
     """
     Creates the collection of cxx-toolchain Infos for a cxx toolchain.
@@ -203,6 +215,7 @@ def cxx_toolchain_infos(
         header_mode = header_mode,
         headers_as_raw_headers_mode = headers_as_raw_headers_mode,
         linker_info = linker_info,
+        llvm_link = llvm_link,
         binary_utilities_info = binary_utilities_info,
         c_compiler_info = c_compiler_info,
         cxx_compiler_info = cxx_compiler_info,
@@ -212,6 +225,7 @@ def cxx_toolchain_infos(
         cuda_compiler_info = cuda_compiler_info,
         mk_comp_db = mk_comp_db,
         mk_hmap = mk_hmap,
+        object_format = object_format,
         dist_lto_tools_info = dist_lto_tools_info,
         use_distributed_thinlto = use_distributed_thinlto,
         use_dep_files = use_dep_files,

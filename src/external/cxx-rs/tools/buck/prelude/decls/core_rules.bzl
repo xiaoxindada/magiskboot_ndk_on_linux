@@ -201,7 +201,6 @@ command_alias = prelude_rule(
             "resources": attrs.list(attrs.source(), default = []),
             "within_view": attrs.option(attrs.option(attrs.list(attrs.string())), default = None),
             "_exec_os_type": buck.exec_os_type_arg(),
-            "_find_and_replace_bat": attrs.default_only(attrs.exec_dep(default = "prelude//tools:find_and_replace.bat")),
             "_target_os_type": buck.target_os_type_arg(),
         }
     ),
@@ -758,14 +757,40 @@ http_archive = prelude_rule(
                  Supported values are: `zip`, `tar`, `tar.gz`,
                  `tar.bz2`, `tar.xz`, and `tar.zst`.
             """),
+            "sub_targets": attrs.list(attrs.string(), default = [], doc = """
+                A list of filepaths within the archive to be made accessible as sub-targets.
+                For example if we have an http_archive with `name = "archive"` and
+                `sub_targets = ["src/lib.rs"]`, then other targets would be able to refer
+                to that file as `":archive[src/lib.rs]"`.
+            """),
             "contacts": attrs.list(attrs.string(), default = []),
             "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
             "labels": attrs.list(attrs.string(), default = []),
             "licenses": attrs.list(attrs.source(), default = []),
             "sha1": attrs.option(attrs.string(), default = None),
             "within_view": attrs.option(attrs.option(attrs.list(attrs.string())), default = None),
-            "_create_exclusion_list": attrs.default_only(attrs.exec_dep(default = "prelude//http_archive/tools:create_exclusion_list")),
-            "_exec_os_type": buck.exec_os_type_arg(),
+            # Exec deps are not supported in an anon_target. But http_archive is
+            # too useful to use in anon targets, so the following is a hack to
+            # make it usable.
+            #
+            # When anon targets work better, replace with the following:
+            #
+            #     "_create_exclusion_list": attrs.default_only(attrs.exec_dep(default = "prelude//http_archive/tools:create_exclusion_list")),
+            #     "_exec_os_type": buck.exec_os_type_arg(),
+            #
+            # The hack is that the following exec dep attributes have a correct
+            # default value for ordinary usage of http_archive from BUCK files,
+            # but anon targets can explicitly set them to None and get
+            # reasonable behavior.
+            #
+            # We'd use `attrs.option(attrs.exec_dep(...), default = "...")`
+            # except that is not allowed, because explicitly passing None in an
+            # attribute value does not set the optional to None, it means set to
+            # the default value.
+            "_create_exclusion_list": attrs.list(attrs.exec_dep(), default = ["prelude//http_archive/tools:create_exclusion_list"]),
+            "_exec_os_type": attrs.list(attrs.exec_dep(), default = ["prelude//os_lookup/targets:os_lookup"]),
+            # Should not exist, only here as part of the anon target workaround.
+            "_override_exec_platform_name": attrs.option(attrs.string(), default = None),
         }
     ),
 )

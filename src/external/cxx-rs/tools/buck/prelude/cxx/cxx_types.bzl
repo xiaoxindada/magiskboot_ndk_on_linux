@@ -22,6 +22,7 @@ load(
     ":compile.bzl",
     "CxxSrcWithFlags",  # @unused Used as a type
 )
+load(":cxx_toolchain_types.bzl", "CxxObjectFormat")
 load(
     ":headers.bzl",
     "CxxHeadersLayout",
@@ -79,6 +80,9 @@ CxxRuleProviderParams = record(
 # Params to handle an argsfile for non-Clang sources which may present in Apple rules.
 CxxAdditionalArgsfileParams = record(
     file = field("artifact"),
+    # The output of the compile step is one of the following, but defaults to "native"
+    # meaning a intermediate .o file in the native architecture
+    format = field(CxxObjectFormat.type, CxxObjectFormat("native")),
     # Hidden args necessary for the argsfile to reference
     hidden_args = field([["artifacts", "cmd_args"]]),
     # An extension of a file for which this argsfile is generated.
@@ -89,7 +93,10 @@ CxxAdditionalArgsfileParams = record(
 CxxRuleAdditionalParams = record(
     srcs = field([CxxSrcWithFlags.type], []),
     argsfiles = field([CxxAdditionalArgsfileParams.type], []),
-    external_debug_info = field(["transitive_set"], []),
+    # External debug info to be used when generated static output
+    static_external_debug_info = field(["transitive_set"], []),
+    # External debug info to be used when generating shared objects
+    shared_external_debug_info = field(["transitive_set"], []),
     subtargets = field(dict.type, {}),  # [str.type: ["provider"]]
     # Might be used to expose additional providers to cxx layer (e.g to support #headers subtarget for Swift)
     additional_providers_factory = field(["function", None], None),  # (["CPreprocessorInfo", None]) -> ["provider"]:
@@ -184,4 +191,6 @@ CxxRuleConstructorParams = record(
     # Whether link groups liking should make `preferred_linkage = "static"` libs
     # "follow" their dependents across link group boundaries.
     link_groups_force_static_follows_dependents = field(bool.type, True),
+    # The intended return type is: (["_arglike"], {str.type: [DefaultInfo.type]}).
+    extra_linker_outputs_factory = field("function", lambda _context: ([], {})),
 )

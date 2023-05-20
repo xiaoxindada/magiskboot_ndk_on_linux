@@ -49,8 +49,8 @@ cxx_library(
     exported_headers = {
         "cxx.h": "include/cxx.h",
     },
-    exported_linker_flags = ["-lstdc++"],
     header_namespace = "rust",
+    preferred_linkage = "static",
     visibility = ["PUBLIC"],
 )
 

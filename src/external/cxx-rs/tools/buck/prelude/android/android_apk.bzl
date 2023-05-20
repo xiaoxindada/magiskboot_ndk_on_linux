@@ -32,7 +32,7 @@ def android_apk_impl(ctx: "context") -> ["provider"]:
     primary_platform = cpu_filters[0]
     deps = deps_by_platform[primary_platform]
 
-    target_to_module_mapping_file = get_target_to_module_mapping(ctx, deps)
+    target_to_module_mapping_file = get_target_to_module_mapping(ctx, deps_by_platform)
 
     no_dx_target_labels = [no_dx_target.label.raw_target() for no_dx_target in ctx.attrs.no_dx]
     java_packaging_deps = [packaging_dep for packaging_dep in get_all_java_packaging_deps(ctx, deps)]
@@ -85,7 +85,13 @@ def android_apk_impl(ctx: "context") -> ["provider"]:
         if ctx.attrs.preprocess_java_classes_bash:
             jars_to_owners = get_preprocessed_java_classes(ctx, jars_to_owners)
         if has_proguard_config:
-            proguard_output = get_proguard_output(ctx, jars_to_owners, java_packaging_deps, resources_info.proguard_config_file)
+            proguard_output = get_proguard_output(
+                ctx,
+                jars_to_owners,
+                java_packaging_deps,
+                resources_info.proguard_config_file,
+                [no_dx[DefaultInfo].default_outputs[0] for no_dx in ctx.attrs.no_dx if len(no_dx[DefaultInfo].default_outputs) == 1],
+            )
             jars_to_owners = proguard_output.jars_to_owners
             dir_srcs = {artifact.basename: artifact for artifact in proguard_output.proguard_artifacts}
             for i, hidden_artifact in enumerate(proguard_output.proguard_hidden_artifacts):

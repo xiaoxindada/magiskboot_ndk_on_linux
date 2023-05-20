@@ -5,21 +5,30 @@
 # License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 # of this source tree.
 
-load("@prelude//cxx:cxx_toolchain_types.bzl", "AsCompilerInfo", "AsmCompilerInfo", "BinaryUtilitiesInfo", "CCompilerInfo", "CudaCompilerInfo", "CxxCompilerInfo", "DepTrackingMode", "DistLtoToolsInfo", "HipCompilerInfo", "LinkerInfo", "StripFlagsInfo", "cxx_toolchain_infos")
+load("@prelude//cxx:cxx_toolchain_types.bzl", "AsCompilerInfo", "AsmCompilerInfo", "BinaryUtilitiesInfo", "CCompilerInfo", "CudaCompilerInfo", "CxxCompilerInfo", "CxxObjectFormat", "DepTrackingMode", "DistLtoToolsInfo", "HipCompilerInfo", "LinkerInfo", "StripFlagsInfo", "cxx_toolchain_infos")
 load("@prelude//cxx:debug.bzl", "SplitDebugMode")
 load("@prelude//cxx:headers.bzl", "HeaderMode", "HeadersAsRawHeadersMode")
 load("@prelude//cxx:linker.bzl", "LINKERS", "is_pdb_generated")
 load("@prelude//linking:link_info.bzl", "LinkOrdering", "LinkStyle")
-load("@prelude//linking:lto.bzl", "LtoMode")
+load("@prelude//linking:lto.bzl", "LtoMode", "lto_compiler_flags")
 load("@prelude//utils:utils.bzl", "value_or")
 load("@prelude//decls/cxx_rules.bzl", "cxx_rules")
 
 def cxx_toolchain_impl(ctx):
     c_compiler = _get_maybe_wrapped_msvc(ctx.attrs.c_compiler[RunInfo], ctx.attrs.c_compiler_type or ctx.attrs.compiler_type, ctx.attrs._msvc_hermetic_exec[RunInfo])
+
+    lto_mode = LtoMode(ctx.attrs.lto_mode)
+    if lto_mode != LtoMode("none"):
+        object_format = "bitcode"
+    else:
+        object_format = ctx.attrs.object_format if ctx.attrs.object_format else "native"
+
+    c_lto_flags = lto_compiler_flags(lto_mode)
+
     c_info = CCompilerInfo(
         compiler = c_compiler,
         compiler_type = ctx.attrs.c_compiler_type or ctx.attrs.compiler_type,
-        compiler_flags = cmd_args(ctx.attrs.c_compiler_flags),
+        compiler_flags = cmd_args(ctx.attrs.c_compiler_flags).add(c_lto_flags),
         preprocessor = c_compiler,
         preprocessor_flags = cmd_args(ctx.attrs.c_preprocessor_flags),
         dep_files_processor = ctx.attrs._dep_files_processor[RunInfo],
@@ -28,7 +37,7 @@ def cxx_toolchain_impl(ctx):
     cxx_info = CxxCompilerInfo(
         compiler = cxx_compiler,
         compiler_type = ctx.attrs.cxx_compiler_type or ctx.attrs.compiler_type,
-        compiler_flags = cmd_args(ctx.attrs.cxx_compiler_flags),
+        compiler_flags = cmd_args(ctx.attrs.cxx_compiler_flags).add(c_lto_flags),
         preprocessor = cxx_compiler,
         preprocessor_flags = cmd_args(ctx.attrs.cxx_preprocessor_flags),
         dep_files_processor = ctx.attrs._dep_files_processor[RunInfo],
@@ -76,8 +85,8 @@ def cxx_toolchain_impl(ctx):
         link_weight = 1,
         link_ordering = ctx.attrs.link_ordering,
         linker = ctx.attrs.linker[RunInfo],
-        linker_flags = cmd_args(ctx.attrs.linker_flags),
-        lto_mode = LtoMode(ctx.attrs.lto_mode),
+        linker_flags = cmd_args(ctx.attrs.linker_flags).add(c_lto_flags),
+        lto_mode = lto_mode,
         object_file_extension = ctx.attrs.object_file_extension or "o",
         shlib_interfaces = "disabled",
         independent_shlib_interface_linker_flags = ctx.attrs.shared_library_interface_flags,
@@ -124,6 +133,8 @@ def cxx_toolchain_impl(ctx):
         cuda_compiler_info = cuda_info,
         hip_compiler_info = hip_info,
         header_mode = _get_header_mode(ctx),
+        llvm_link = ctx.attrs.llvm_link[RunInfo] if ctx.attrs.llvm_link else None,
+        object_format = CxxObjectFormat(object_format),
         headers_as_raw_headers_mode = HeadersAsRawHeadersMode(ctx.attrs.headers_as_raw_headers_mode) if ctx.attrs.headers_as_raw_headers_mode != None else None,
         conflicting_header_basename_allowlist = ctx.attrs.conflicting_header_basename_exemptions,
         mk_hmap = ctx.attrs._mk_hmap[RunInfo],
@@ -157,9 +168,11 @@ def cxx_toolchain_extra_attributes(is_toolchain_rule):
         "hip_compiler": attrs.option(dep_type(providers = [RunInfo]), default = None),
         "link_ordering": attrs.enum(LinkOrdering.values(), default = "preorder"),
         "linker": dep_type(providers = [RunInfo]),
+        "llvm_link": attrs.option(dep_type(providers = [RunInfo]), default = None),
         "lto_mode": attrs.enum(LtoMode.values(), default = "none"),
         "nm": dep_type(providers = [RunInfo]),
         "objcopy_for_shared_library_interface": dep_type(providers = [RunInfo]),
+        "object_format": attrs.enum(CxxObjectFormat.values(), default = "native"),
         # A placeholder tool that can be used to set up toolchain constraints.
         # Useful when fat and thin toolchahins share the same underlying tools via `command_alias()`,
         # which requires setting up separate platform-specific aliases with the correct constraints.

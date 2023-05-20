@@ -35,6 +35,7 @@ load(
     "@prelude//java:java_providers.bzl",
     "get_java_packaging_info",
 )
+load("@prelude//linking:execution_preference.bzl", "LinkExecutionPreference", "LinkExecutionPreferenceInfo", "get_link_execution_preference")
 load(
     "@prelude//linking:link_groups.bzl",
     "LinkGroupLib",  # @unused Used as a type
@@ -196,6 +197,10 @@ _CxxAllLibraryOutputs = record(
     outputs = field({LinkStyle.type: [_CxxLibraryOutput.type, None]}),
     # The link infos that are part of each output based on link style.
     libraries = field({LinkStyle.type: LinkInfos.type}),
+    # Extra sub targets to be returned as outputs of this rule, by link style.
+    sub_targets = field({LinkStyle.type: {str.type: [DefaultInfo.type]}}, default = {}),
+    # Extra providers to be returned consumers of this rule.
+    providers = field(["provider"], default = []),
     # Shared object name to shared library mapping.
     solibs = field({str.type: LinkedObject.type}),
 )
@@ -366,7 +371,7 @@ def cxx_library_parameterized(ctx: "context", impl_params: "CxxRuleConstructorPa
     frameworks_linkable = apple_create_frameworks_linkable(ctx)
     swiftmodule_linkable = impl_params.swiftmodule_linkable
     swift_runtime_linkable = create_swift_runtime_linkable(ctx)
-    shared_links, link_group_map = _get_shared_library_links(
+    shared_links, link_group_map, link_execution_preference = _get_shared_library_links(
         ctx,
         get_linkable_graph_node_map_func(deps_linkable_graph),
         link_group,
@@ -400,7 +405,15 @@ def cxx_library_parameterized(ctx: "context", impl_params: "CxxRuleConstructorPa
         shared_links = shared_links,
         extra_static_linkables = extra_static_linkables,
         gnu_use_link_groups = cxx_is_gnu(ctx) and bool(link_group_mappings),
+        link_execution_preference = link_execution_preference,
     )
+
+    for _, link_style_sub_targets in library_outputs.sub_targets.items():
+        for key in link_style_sub_targets.keys():
+            expect(not key in sub_targets, "The subtarget `{}` already exists!".format(key))
+        sub_targets.update(link_style_sub_targets)
+
+    providers.extend(library_outputs.providers)
 
     actual_link_style = get_actual_link_style(cxx_attr_link_style(ctx), preferred_linkage)
 
@@ -420,6 +433,9 @@ def cxx_library_parameterized(ctx: "context", impl_params: "CxxRuleConstructorPa
                 output.pdb,
                 output.linker_map,
             )
+
+            # Add any subtargets for this link style.
+            link_style_sub_targets.update(library_outputs.sub_targets.get(link_style, {}))
 
             if impl_params.generate_sub_targets.link_style_outputs:
                 sub_targets[link_style.value.replace("_", "-")] = [DefaultInfo(
@@ -512,6 +528,20 @@ def cxx_library_parameterized(ctx: "context", impl_params: "CxxRuleConstructorPa
             frameworks_linkable = frameworks_linkable,
         ), LinkGroupLibInfo(libs = {}), SharedLibraryInfo(set = None)] + additional_providers
 
+    if getattr(ctx.attrs, "supports_header_symlink_subtarget", False):
+        header_symlink_mapping = {}
+        for records in propagated_preprocessor.set.traverse():
+            for record in records:
+                for header in record.headers:
+                    header_path = header.name
+                    if header.namespace:
+                        header_path = paths.join(header.namespace, header_path)
+                    header_symlink_mapping[paths.normalize(header_path)] = header.artifact
+
+        sub_targets["header-symlink-tree"] = [DefaultInfo(
+            default_output = ctx.actions.symlinked_dir("header_symlink_tree", header_symlink_mapping),
+        )]
+
     for additional_subtarget, subtarget_providers in impl_params.additional.subtargets.items():
         sub_targets[additional_subtarget] = subtarget_providers
 
@@ -542,7 +572,7 @@ def cxx_library_parameterized(ctx: "context", impl_params: "CxxRuleConstructorPa
                             compiled_srcs.pic_external_debug_info +
                             (compiled_srcs.pic_objects if compiled_srcs.pic_objects_have_external_debug_info else [])
                         ),
-                        children = impl_params.additional.external_debug_info,
+                        children = impl_params.additional.static_external_debug_info,
                     ),
                 ),
                 stripped = LinkInfo(
@@ -782,11 +812,14 @@ def _form_library_outputs(
         preferred_linkage: Linkage.type,
         shared_links: LinkArgs.type,
         extra_static_linkables: [[FrameworksLinkable.type, SwiftmoduleLinkable.type, SwiftRuntimeLinkable.type]],
-        gnu_use_link_groups: bool.type) -> _CxxAllLibraryOutputs.type:
+        gnu_use_link_groups: bool.type,
+        link_execution_preference: LinkExecutionPreference.type) -> _CxxAllLibraryOutputs.type:
     # Build static/shared libs and the link info we use to export them to dependents.
     outputs = {}
     libraries = {}
     solibs = {}
+    sub_targets = {}
+    providers = []
 
     # Add in exported linker flags.
     def ldflags(inner: LinkInfo.type) -> LinkInfo.type:
@@ -817,7 +850,7 @@ def _form_library_outputs(
                         ctx.actions,
                         label = ctx.label,
                         artifacts = (compiled_srcs.pic_external_debug_info if pic else compiled_srcs.external_debug_info),
-                        children = impl_params.additional.external_debug_info,
+                        children = impl_params.additional.static_external_debug_info,
                     ),
                     pic = pic,
                     stripped = False,
@@ -850,9 +883,10 @@ def _form_library_outputs(
                     actions = ctx.actions,
                     label = ctx.label,
                     artifacts = external_debug_artifacts,
-                    children = impl_params.additional.external_debug_info,
+                    children = impl_params.additional.shared_external_debug_info,
                 )
 
+                extra_linker_flags, extra_linker_outputs = impl_params.extra_linker_outputs_factory(ctx)
                 result = _shared_library(
                     ctx,
                     impl_params,
@@ -860,7 +894,9 @@ def _form_library_outputs(
                     external_debug_info,
                     shared_links,
                     gnu_use_link_groups,
+                    extra_linker_flags = extra_linker_flags,
                     link_ordering = map_val(LinkOrdering, ctx.attrs.link_ordering),
+                    link_execution_preference = link_execution_preference,
                 )
                 shlib = result.shlib
                 info = result.info
@@ -873,6 +909,8 @@ def _form_library_outputs(
                     pdb = shlib.pdb,
                 )
                 solibs[result.soname] = shlib
+                sub_targets[link_style] = extra_linker_outputs
+                providers.append(result.link_execution_preference_info)
 
         # you cannot link against header only libraries so create an empty link info
         info = info if info != None else LinkInfo()
@@ -885,6 +923,8 @@ def _form_library_outputs(
     return _CxxAllLibraryOutputs(
         outputs = outputs,
         libraries = libraries,
+        sub_targets = sub_targets,
+        providers = providers,
         solibs = solibs,
     )
 
@@ -920,7 +960,7 @@ def _get_shared_library_links(
         frameworks_linkable: [FrameworksLinkable.type, None],
         force_static_follows_dependents: bool.type = True,
         swiftmodule_linkable: [SwiftmoduleLinkable.type, None] = None,
-        swift_runtime_linkable: [SwiftRuntimeLinkable.type, None] = None) -> ("LinkArgs", [DefaultInfo.type, None]):
+        swift_runtime_linkable: [SwiftRuntimeLinkable.type, None] = None) -> ("LinkArgs", [DefaultInfo.type, None], LinkExecutionPreference.type):
     """
     Returns LinkArgs with the content to link, and a link group map json output if applicable.
 
@@ -949,6 +989,12 @@ def _get_shared_library_links(
         # loaded in the address space of any process at any address.
         link_style_value = "static_pic" if link_style_value == "static" else link_style_value
 
+        # We cannot support deriving link execution preference off the included links, as we've already
+        # lost the information on what is in the link.
+        # TODO(T152860998): Derive link_execution_preference based upon the included links
+        # Not all rules calling `cxx_library_parameterized` have `link_execution_preference`. Notably `cxx_python_extension`.
+        link_execution_preference = get_link_execution_preference(ctx, []) if hasattr(ctx.attrs, "link_execution_preference") else LinkExecutionPreference("any")
+
         return apple_build_link_args_with_deduped_flags(
             ctx,
             link,
@@ -956,7 +1002,7 @@ def _get_shared_library_links(
             LinkStyle(link_style_value),
             swiftmodule_linkable = swiftmodule_linkable,
             swift_runtime_linkable = swift_runtime_linkable,
-        ), None
+        ), None, link_execution_preference
 
     # Else get filtered link group links
     prefer_stripped = cxx_is_gnu(ctx) and ctx.attrs.prefer_stripped_objects
@@ -978,13 +1024,15 @@ def _get_shared_library_links(
     filtered_links = get_filtered_links(filtered_labels_to_links_map)
     filtered_targets = get_filtered_targets(filtered_labels_to_links_map)
 
+    link_execution_preference = get_link_execution_preference(ctx, filtered_labels_to_links_map.keys())
+
     # Unfortunately, link_groups does not use MergedLinkInfo to represent the args
     # for the resolved nodes in the graph.
     additional_links = apple_get_link_info_by_deduping_link_infos(ctx, filtered_links, frameworks_linkable, swiftmodule_linkable, swift_runtime_linkable)
     if additional_links:
         filtered_links.append(additional_links)
 
-    return LinkArgs(infos = filtered_links), get_link_group_map_json(ctx, filtered_targets)
+    return LinkArgs(infos = filtered_links), get_link_group_map_json(ctx, filtered_targets), link_execution_preference
 
 def _use_pic(link_style: LinkStyle.type) -> bool.type:
     """
@@ -1084,6 +1132,7 @@ _CxxSharedLibraryResult = record(
     # `LinkInfo` used to link against the shared library.
     info = LinkInfo.type,
     linker_map_data = [CxxLinkerMapData.type, None],
+    link_execution_preference_info = LinkExecutionPreferenceInfo.type,
 )
 
 def _shared_library(
@@ -1093,6 +1142,8 @@ def _shared_library(
         external_debug_info: [ExternalDebugInfoTSet.type, None],
         dep_infos: "LinkArgs",
         gnu_use_link_groups: bool.type,
+        extra_linker_flags: ["_arglike"],
+        link_execution_preference: LinkExecutionPreference.type,
         link_ordering: [LinkOrdering.type, None] = None) -> _CxxSharedLibraryResult.type:
     """
     Generate a shared library and the associated native link info used by
@@ -1120,12 +1171,13 @@ def _shared_library(
         post_flags = (
             impl_params.extra_exported_link_flags +
             impl_params.extra_link_flags +
+            extra_linker_flags +
             _attr_post_linker_flags(ctx) +
             (linker_info.shared_dep_runtime_ld_flags or [])
         ),
         external_debug_info = external_debug_info,
     )
-    shlib, linker_map_data = cxx_link_into_shared_library(
+    shlib, linker_map_data, link_execution_preference_info = cxx_link_into_shared_library(
         ctx,
         soname,
         [LinkArgs(infos = [link_info]), dep_infos],
@@ -1135,6 +1187,7 @@ def _shared_library(
         shared_library_flags = impl_params.shared_library_flags,
         strip = impl_params.strip_executable,
         strip_args_factory = impl_params.strip_args_factory,
+        link_execution_preference = link_execution_preference,
     )
 
     exported_shlib = shlib.output
@@ -1169,6 +1222,7 @@ def _shared_library(
             name = soname,
             links = [LinkArgs(infos = [link_info])],
             identifier = soname,
+            link_execution_preference = link_execution_preference,
         )
 
         # Convert the shared library into an interface.
@@ -1190,6 +1244,7 @@ def _shared_library(
             )],
         ),
         linker_map_data = linker_map_data,
+        link_execution_preference_info = link_execution_preference_info,
     )
 
 def _attr_reexport_all_header_dependencies(ctx: "context") -> bool.type:

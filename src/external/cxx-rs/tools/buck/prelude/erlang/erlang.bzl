@@ -36,6 +36,7 @@ rules_attributes = {
     "erlang_app": dict({
         "app_src": attrs.option(attrs.source(), default = None),
         "build_edoc_chunks": attrs.bool(default = True),
+        "env": attrs.option(attrs.dict(key = attrs.string(), value = attrs.string()), default = None),
         "erl_opts": attrs.option(attrs.list(attrs.string()), default = None),
         "extra_includes": attrs.list(attrs.dep(), default = []),
         "includes": attrs.list(attrs.source(), default = []),
@@ -150,7 +151,7 @@ def erlang_application(
             name = _extra_include_name(name),
             application_name = name,
             includes = kwargs.get("includes", []),
-            visibility = kwargs.get("visibility", []),
+            visibility = kwargs.get("visibility", None),
             labels = ["generated", "app_includes"],
         ),
     ]

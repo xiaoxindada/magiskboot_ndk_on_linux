@@ -71,7 +71,7 @@ main([TestInfoFile]) ->
     test_logger:set_up_logger(OutputDir, test_runner, true),
     try list_and_run(TestInfoFile, OutputDir) of
         true ->
-            io:format("~nAt leas one test didn't pass!~nYou can find the test output directory here: ~s~n", [OutputDir]),
+            io:format("~nAt least one test didn't pass!~nYou can find the test output directory here: ~s~n", [OutputDir]),
             erlang:halt(1);
         false ->
             erlang:halt(0)
@@ -138,7 +138,8 @@ get_hooks(TestInfo) ->
     Hooks = lists:append(proplists:get_all_values(ct_hooks, TestInfo#test_info.ct_opts)),
     [
         case HookSpec of
-            {HookModule, _InitArguments} -> HookModule;
+            {HookModule, _InitArguments} when is_atom(HookModule) -> HookModule;
+            {HookModule, _InitArguments, Priority} when is_atom(HookModule), is_integer(Priority) -> HookModule;
             HookModule when is_atom(HookModule) -> HookModule
         end
      || HookSpec <- Hooks

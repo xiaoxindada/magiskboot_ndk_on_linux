@@ -5,12 +5,13 @@
 # License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 # of this source tree.
 
-load("@prelude//:local_only.bzl", "link_cxx_binary_locally")
+load("@prelude//:local_only.bzl", "get_resolved_cxx_binary_link_execution_preference")
 load(
     "@prelude//cxx:link.bzl",
     "cxx_link_into_shared_library",
     "cxx_link_shared_library",
 )
+load("@prelude//linking:execution_preference.bzl", "LinkExecutionPreference")
 load(
     "@prelude//linking:link_info.bzl",
     "LinkArgs",
@@ -42,7 +43,7 @@ load(
     "post_order_traversal",
 )
 load("@prelude//utils:utils.bzl", "expect", "flatten", "value_or")
-load("//open_source.bzl", "is_open_source")
+load("@prelude//open_source.bzl", "is_open_source")
 load(":cxx_context.bzl", "get_cxx_toolchain_info")
 load(
     ":linker.bzl",
@@ -173,11 +174,11 @@ def get_excluded(deps: ["dependency"] = []) -> {"label": None}:
 
 def create_linkable_root(
         ctx: "context",
-        link_infos: LinkInfos.type,
-        name: [str.type, None],
-        deps: ["dependency"],
         graph: LinkableGraph.type,
-        create_shared_root: bool.type) -> LinkableRootInfo.type:
+        link_infos: LinkInfos.type,
+        name: [str.type, None] = None,
+        deps: ["dependency"] = [],
+        create_shared_root: bool.type = False) -> LinkableRootInfo.type:
     # Only include dependencies that are linkable.
     deps = linkable_deps(deps)
 
@@ -262,7 +263,7 @@ def create_linkable_root(
             "omnibus/" + value_or(name, get_default_shared_library_name(linker_info, ctx.label)),
         )
 
-        shared_library, _ = cxx_link_shared_library(
+        shared_library, _, _ = cxx_link_shared_library(
             ctx,
             output,
             name = name,
@@ -461,7 +462,7 @@ def _create_root(
     )))
 
     # link the rule
-    shared_library, _ = cxx_link_shared_library(
+    shared_library, _, _ = cxx_link_shared_library(
         ctx,
         output,
         name = root.name,
@@ -471,7 +472,7 @@ def _create_root(
         # We prefer local execution because there are lot of cxx_link_omnibus_root
         # running simultaneously, so while their overall load is reasonable,
         # their peak execution load is very high.
-        prefer_local = True,
+        link_execution_preference = LinkExecutionPreference("local"),
     )
 
     return OmnibusRootProduct(
@@ -724,8 +725,8 @@ def _create_omnibus(
         ]))
 
     soname = _omnibus_soname(ctx)
-    hybrid = use_hybrid_links_for_libomnibus(ctx)
-    result, _ = cxx_link_into_shared_library(
+
+    result, _, _ = cxx_link_into_shared_library(
         ctx,
         soname,
         links = [LinkArgs(flags = extra_ldflags), LinkArgs(infos = inputs)],
@@ -737,11 +738,10 @@ def _create_omnibus(
         # the linker_info.link_libraries_locally that's used by `cxx_link_into_shared_library`.
         # That's because we do not want to apply the linking behavior universally,
         # just use it for omnibus.
-        prefer_local = False if hybrid else link_cxx_binary_locally(ctx, toolchain_info),
+        link_execution_preference = get_resolved_cxx_binary_link_execution_preference(ctx, [], use_hybrid_links_for_libomnibus(ctx), toolchain_info),
         link_weight = linker_info.link_weight,
         enable_distributed_thinlto = ctx.attrs.enable_distributed_thinlto,
         identifier = soname,
-        force_full_hybrid_if_capable = hybrid,
     )
     return result
 

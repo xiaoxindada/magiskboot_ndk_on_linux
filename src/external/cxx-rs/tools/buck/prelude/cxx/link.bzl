@@ -15,6 +15,7 @@ load(
     "@prelude//cxx/dist_lto:dist_lto.bzl",
     "cxx_dist_link",
 )
+load("@prelude//linking:execution_preference.bzl", "LinkExecutionPreference", "LinkExecutionPreferenceInfo", "get_action_execution_attributes")
 load(
     "@prelude//linking:link_info.bzl",
     "LinkArgs",
@@ -23,6 +24,7 @@ load(
     "unpack_external_debug_info",
     "unpack_link_args",
 )
+load("@prelude//linking:lto.bzl", "darwin_lto_linker_flags")
 load("@prelude//linking:strip.bzl", "strip_shared_library")
 load("@prelude//utils:utils.bzl", "map_val", "value_or")
 load(":cxx_context.bzl", "get_cxx_toolchain_info")
@@ -59,9 +61,7 @@ def cxx_link(
         # The destination for the link output.
         output: "artifact",
         result_type: CxxLinkResultType.type,
-        linker_map: ["artifact", None] = None,
-        prefer_local: bool.type = False,
-        local_only: bool.type = False,
+        link_execution_preference: LinkExecutionPreference.type,
         link_weight: int.type = 1,
         link_ordering: [LinkOrdering.type, None] = None,
         enable_distributed_thinlto: bool.type = False,
@@ -74,17 +74,27 @@ def cxx_link(
         # A function/lambda which will generate the strip args using the ctx.
         strip_args_factory = None,
         allow_bolt_optimization_and_dwp_generation: bool.type = True,
-        force_full_hybrid_if_capable: bool.type = False,
-        import_library: ["artifact", None] = None) -> LinkedObject.type:
+        import_library: ["artifact", None] = None) -> (LinkedObject.type, [CxxLinkerMapData.type, None], LinkExecutionPreferenceInfo.type):
     cxx_toolchain_info = get_cxx_toolchain_info(ctx)
     linker_info = cxx_toolchain_info.linker_info
 
     should_generate_dwp = allow_bolt_optimization_and_dwp_generation and dwp_available(ctx) and cxx_toolchain_info.split_debug_mode != SplitDebugMode("none")
     is_result_executable = result_type.value == "executable"
+
+    if linker_info.generate_linker_maps:
+        linker_map = ctx.actions.declare_output(output.short_path + "-LinkMap.txt")
+        linker_map_data = CxxLinkerMapData(
+            map = linker_map,
+            binary = output,
+        )
+    else:
+        linker_map = None
+        linker_map_data = None
+
     if linker_info.supports_distributed_thinlto and enable_distributed_thinlto:
         if not linker_info.requires_objects:
             fail("Cannot use distributed thinlto if the cxx toolchain doesn't require_objects")
-        return cxx_dist_link(
+        exe = cxx_dist_link(
             ctx,
             links,
             output,
@@ -94,8 +104,11 @@ def cxx_link(
             should_generate_dwp,
             is_result_executable,
         )
-    if linker_map != None:
+        return (exe, linker_map_data, LinkExecutionPreferenceInfo(preference = link_execution_preference))
+
+    if linker_info.generate_linker_maps:
         links += [linker_map_args(ctx, linker_map.as_output())]
+
     (link_args, hidden, dwo_dir, pdb_artifact) = make_link_args(
         ctx,
         links,
@@ -109,7 +122,11 @@ def cxx_link(
         ),
     )
 
-    external_debug_artifacts = []
+    # Darwin LTO requires extra link outputs to preserve debug info
+    darwin_lto_flags, darwin_lto_artifacts = darwin_lto_linker_flags(ctx)
+    link_args.add(darwin_lto_flags)
+
+    external_debug_artifacts = darwin_lto_artifacts
     external_debug_infos = []
 
     # When using LTO+split-dwarf, the link step will generate externally
@@ -161,21 +178,18 @@ def cxx_link(
         cmd.hidden(command)
         command = cmd
 
-    # Enable hybrid execution only when prefer local is set to preserve isolation
-    if prefer_local and force_full_hybrid_if_capable:
-        fail("cannot use `force_full_hybrid_if_capable` when `prefer_local` is enabled")
-
-    if local_only and force_full_hybrid_if_capable:
-        fail("cannot use `force_full_hybrid_if_capable` when `local_only` is enabled")
+    link_execution_preference_info = LinkExecutionPreferenceInfo(preference = link_execution_preference)
+    action_execution_properties = get_action_execution_attributes(link_execution_preference)
 
     ctx.actions.run(
         command,
-        prefer_local = prefer_local,
-        local_only = local_only,
+        prefer_local = action_execution_properties.prefer_local,
+        prefer_remote = action_execution_properties.prefer_remote,
+        local_only = action_execution_properties.local_only,
         weight = link_weight,
         category = category,
         identifier = identifier,
-        force_full_hybrid_if_capable = force_full_hybrid_if_capable,
+        force_full_hybrid_if_capable = action_execution_properties.full_hybrid,
     )
     if strip:
         strip_args = strip_args_factory(ctx) if strip_args_factory else cmd_args()
@@ -205,7 +219,7 @@ def cxx_link(
             referenced_objects = [dwp_inputs],
         )
 
-    return LinkedObject(
+    linked_object = LinkedObject(
         output = final_output,
         prebolt_output = output,
         dwp = dwp_artifact,
@@ -214,11 +228,7 @@ def cxx_link(
         import_library = import_library,
         pdb = pdb_artifact,
     )
-
-def _link_libraries_locally(ctx: "context", prefer_local: bool.type) -> bool.type:
-    if hasattr(ctx.attrs, "_link_libraries_locally_override"):
-        return value_or(ctx.attrs._link_libraries_locally_override, prefer_local)
-    return prefer_local
+    return (linked_object, linker_map_data, link_execution_preference_info)
 
 def cxx_link_shared_library(
         ctx: "context",
@@ -227,8 +237,7 @@ def cxx_link_shared_library(
         # Optional soname to link into shared library.
         name: [str.type, None] = None,
         links: [LinkArgs.type] = [],
-        prefer_local: [bool.type, None] = None,
-        local_only: [bool.type, None] = None,
+        link_execution_preference: LinkExecutionPreference.type = LinkExecutionPreference("any"),
         link_weight: int.type = 1,
         link_ordering: [LinkOrdering.type, None] = None,
         enable_distributed_thinlto: bool.type = False,
@@ -240,8 +249,7 @@ def cxx_link_shared_library(
         # Overrides the default flags used to specify building shared libraries
         shared_library_flags: [SharedLibraryFlagOverrides.type, None] = None,
         strip: bool.type = False,
-        strip_args_factory = None,
-        force_full_hybrid_if_capable: [bool.type, None] = None) -> (LinkedObject.type, [CxxLinkerMapData.type, None]):
+        strip_args_factory = None) -> (LinkedObject.type, [CxxLinkerMapData.type, None], LinkExecutionPreferenceInfo.type):
     """
     Link a shared library into the supplied output.
     """
@@ -253,9 +261,8 @@ def cxx_link_shared_library(
     if name != None:
         extra_args.extend(get_shared_library_name_linker_flags(linker_type, name, shared_library_flags))
 
-    prefer_local_value = value_or(prefer_local, value_or(linker_info.link_libraries_locally, False))
-
-    links_with_extra_args = [LinkArgs(flags = extra_args)] + links
+    if linker_info.link_libraries_locally:
+        link_execution_preference = LinkExecutionPreference("local")
 
     (import_library, import_library_args) = get_import_library(
         ctx,
@@ -263,20 +270,11 @@ def cxx_link_shared_library(
         output.short_path,
     )
 
-    if linker_info.generate_linker_maps:
-        linker_map = ctx.actions.declare_output(output.short_path + "-LinkMap.txt")
-        linker_map_data = CxxLinkerMapData(
-            map = linker_map,
-            binary = output,
-        )
-        kwargs = {"linker_map": linker_map}
-    else:
-        linker_map_data = None
-        kwargs = {}
+    links_with_extra_args = [LinkArgs(flags = extra_args)] + links + [LinkArgs(flags = import_library_args)]
 
-    exe = cxx_link(
+    exe, linker_map_data, preference_info = cxx_link(
         ctx,
-        links_with_extra_args + [LinkArgs(flags = import_library_args)],
+        links_with_extra_args,
         output,
         CxxLinkResultType("shared_library"),
         enable_distributed_thinlto = enable_distributed_thinlto,
@@ -285,15 +283,12 @@ def cxx_link_shared_library(
         strip = strip,
         strip_args_factory = strip_args_factory,
         import_library = import_library,
-        force_full_hybrid_if_capable = value_or(force_full_hybrid_if_capable, False),
         link_ordering = link_ordering,
         link_weight = link_weight,
-        local_only = value_or(local_only, False),
-        prefer_local = _link_libraries_locally(ctx, prefer_local_value),
-        **kwargs
+        link_execution_preference = link_execution_preference,
     )
 
-    return (exe, linker_map_data)
+    return (exe, linker_map_data, preference_info)
 
 def cxx_link_into_shared_library(
         ctx: "context",
@@ -301,9 +296,8 @@ def cxx_link_into_shared_library(
         links: [LinkArgs.type] = [],
         # Whether to embed the library name as the SONAME.
         soname: bool.type = True,
-        prefer_local: [bool.type, None] = None,
+        link_execution_preference: LinkExecutionPreference.type = LinkExecutionPreference("any"),
         link_ordering: [LinkOrdering.type, None] = None,
-        local_only: [bool.type, None] = None,
         link_weight: int.type = 1,
         enable_distributed_thinlto: bool.type = False,
         # A category suffix that will be added to the category of the link action that is generated.
@@ -314,16 +308,14 @@ def cxx_link_into_shared_library(
         # Overrides the default flags used to specify building shared libraries
         shared_library_flags: [SharedLibraryFlagOverrides.type, None] = None,
         strip: bool.type = False,
-        strip_args_factory = None,
-        force_full_hybrid_if_capable: [bool.type, None] = None) -> (LinkedObject.type, [CxxLinkerMapData.type, None]):
+        strip_args_factory = None) -> (LinkedObject.type, [CxxLinkerMapData.type, None], LinkExecutionPreferenceInfo.type):
     output = ctx.actions.declare_output(name)
     return cxx_link_shared_library(
         ctx,
         output,
         name = name if soname else None,
         links = links,
-        prefer_local = prefer_local,
-        local_only = local_only,
+        link_execution_preference = link_execution_preference,
         link_weight = link_weight,
         enable_distributed_thinlto = enable_distributed_thinlto,
         category_suffix = category_suffix,
@@ -332,5 +324,4 @@ def cxx_link_into_shared_library(
         shared_library_flags = shared_library_flags,
         strip = strip,
         strip_args_factory = strip_args_factory,
-        force_full_hybrid_if_capable = force_full_hybrid_if_capable,
     )

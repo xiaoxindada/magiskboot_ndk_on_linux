@@ -13,6 +13,7 @@ load(
     "@prelude//cxx:compile.bzl",
     "CxxSrcWithFlags",  # @unused Used as a type
 )
+load("@prelude//cxx:cxx_toolchain_types.bzl", "CxxObjectFormat")
 load("@prelude//cxx:cxx_types.bzl", "CxxAdditionalArgsfileParams")
 load(
     "@prelude//cxx:debug.bzl",
@@ -39,6 +40,7 @@ load(":swift_pcm_compilation.bzl", "PcmDepTSet", "compile_underlying_pcm", "get_
 load(":swift_pcm_compilation_types.bzl", "SwiftPCMUncompiledInfo")
 load(":swift_sdk_pcm_compilation.bzl", "get_swift_sdk_pcm_anon_targets")
 load(":swift_sdk_swiftinterface_compilation.bzl", "get_swift_interface_anon_targets")
+load(":swift_toolchain_types.bzl", "SwiftObjectFormat")
 
 def _add_swiftmodule_search_path(swiftmodule_path: "artifact"):
     # Value will contain a path to the artifact,
@@ -69,11 +71,12 @@ SwiftDependencyInfo = provider(fields = [
 SwiftCompilationOutput = record(
     # The object file output from compilation.
     object_file = field("artifact"),
+    object_format = field(SwiftObjectFormat.type),
     # The swiftmodule file output from compilation.
     swiftmodule = field("artifact"),
-    # The dependency info providers that provide the swiftmodule
+    # The dependency info provider that contains the swiftmodule
     # search paths required for compilation and linking.
-    dependency_info = field([SwiftDependencyInfo.type]),
+    dependency_info = field(SwiftDependencyInfo.type),
     # Preprocessor info required for ObjC compilation of this library.
     pre = field(CPreprocessor.type),
     # Exported preprocessor info required for ObjC compilation of rdeps.
@@ -220,8 +223,9 @@ def compile_swift(
     # Pass up the swiftmodule paths for this module and its exported_deps
     return SwiftCompilationOutput(
         object_file = output_object,
+        object_format = toolchain.object_format,
         swiftmodule = output_swiftmodule,
-        dependency_info = [get_swift_dependency_info(ctx, exported_pp_info, output_swiftmodule)],
+        dependency_info = get_swift_dependency_info(ctx, exported_pp_info, output_swiftmodule),
         pre = pre,
         exported_pre = exported_pp_info,
         swift_argsfile = swift_argsfile,
@@ -275,7 +279,7 @@ def _compile_swiftmodule(
         "-emit-objc-header-path",
         output_header.as_output(),
     ])
-    return _compile_with_argsfile(ctx, "swiftmodule_compile", argfile_cmd, srcs, cmd, toolchain)
+    return _compile_with_argsfile(ctx, "swiftmodule_compile", argfile_cmd, srcs, cmd, toolchain, CxxObjectFormat("swift"))
 
 def _compile_object(
         ctx: "context",
@@ -283,12 +287,29 @@ def _compile_object(
         shared_flags: "cmd_args",
         srcs: [CxxSrcWithFlags.type],
         output_object: "artifact") -> CxxAdditionalArgsfileParams.type:
+    object_format = toolchain.object_format.value
+    embed_bitcode = False
+    if toolchain.object_format == SwiftObjectFormat("object"):
+        cxx_format = CxxObjectFormat("native")
+    elif toolchain.object_format in [SwiftObjectFormat("bc"), SwiftObjectFormat("ir"), SwiftObjectFormat("irgen")]:
+        cxx_format = CxxObjectFormat("bitcode")
+    elif toolchain.object_format == SwiftObjectFormat("object-embed-bitcode"):
+        object_format = "object"
+        embed_bitcode = True
+        cxx_format = CxxObjectFormat("embedded-bitcode")
+    else:
+        cxx_format = CxxObjectFormat("native")
+
     cmd = cmd_args([
-        "-emit-object",
+        "-emit-{}".format(object_format),
         "-o",
         output_object.as_output(),
     ])
-    return _compile_with_argsfile(ctx, "swift_compile", shared_flags, srcs, cmd, toolchain)
+
+    if embed_bitcode:
+        cmd.add("--embed-bitcode")
+
+    return _compile_with_argsfile(ctx, "swift_compile", shared_flags, srcs, cmd, toolchain, cxx_output_format = cxx_format)
 
 def _compile_with_argsfile(
         ctx: "context",
@@ -296,7 +317,8 @@ def _compile_with_argsfile(
         shared_flags: "cmd_args",
         srcs: [CxxSrcWithFlags.type],
         additional_flags: "cmd_args",
-        toolchain: "SwiftToolchainInfo") -> CxxAdditionalArgsfileParams.type:
+        toolchain: "SwiftToolchainInfo",
+        cxx_output_format: CxxObjectFormat.type) -> CxxAdditionalArgsfileParams.type:
     shell_quoted_cmd = cmd_args(shared_flags, quote = "shell")
     argfile, _ = ctx.actions.write(name + ".argsfile", shell_quoted_cmd, allow_args = True)
 
@@ -328,7 +350,7 @@ def _compile_with_argsfile(
     )
 
     hidden_args = [shared_flags]
-    return CxxAdditionalArgsfileParams(file = argfile, hidden_args = hidden_args, extension = ".swift")
+    return CxxAdditionalArgsfileParams(file = argfile, format = cxx_output_format, hidden_args = hidden_args, extension = ".swift")
 
 def _get_shared_flags(
         ctx: "context",
@@ -611,8 +633,8 @@ def uses_explicit_modules(ctx: "context") -> bool.type:
     swift_toolchain = ctx.attrs._apple_toolchain[AppleToolchainInfo].swift_toolchain_info
     return ctx.attrs.uses_explicit_modules and is_sdk_modules_provided(swift_toolchain)
 
-def get_swiftmodule_linkable(ctx: "context", dependency_infos: [SwiftDependencyInfo.type]) -> SwiftmoduleLinkable.type:
-    return SwiftmoduleLinkable(tset = ctx.actions.tset(SwiftmodulePathsTSet, children = [d.transitive_swiftmodule_paths for d in dependency_infos]))
+def get_swiftmodule_linkable(ctx: "context", dependency_info: SwiftDependencyInfo.type) -> SwiftmoduleLinkable.type:
+    return SwiftmoduleLinkable(tset = ctx.actions.tset(SwiftmodulePathsTSet, children = [dependency_info.transitive_swiftmodule_paths]))
 
 def extract_swiftmodule_linkables(link_infos: [[LinkInfo.type], None]) -> [SwiftmoduleLinkable.type]:
     swift_module_type = LinkableType("swiftmodule")

@@ -33,6 +33,7 @@ load(
     "traverse_shared_library_info",
 )
 load("@prelude//os_lookup:defs.bzl", "OsLookup")
+load("@prelude//utils:cmd_script.bzl", "ScriptOs", "cmd_script")
 load("@prelude//utils:set.bzl", "set")
 load("@prelude//utils:utils.bzl", "flatten_dict")
 load(
@@ -59,7 +60,6 @@ load(
     "RustLinkStyleInfo",
     "attr_crate",
     "attr_simple_crate_for_filenames",
-    "cxx_by_platform",
     "inherited_non_rust_link_info",
     "inherited_non_rust_shared_libs",
     "normalize_crate",
@@ -72,6 +72,7 @@ load(":rust_toolchain.bzl", "RustToolchainInfo", "ctx_toolchain_info")
 RustcOutput = record(
     outputs = field({Emit.type: "artifact"}),
     diag = field({str.type: "artifact"}),
+    pdb = field(["artifact", None]),
 )
 
 def compile_context(ctx: "context") -> CompileContext.type:
@@ -140,10 +141,9 @@ def generate_rustdoc(
     subdir = common_args.subdir + "-rustdoc"
     output = ctx.actions.declare_output(subdir)
 
-    plain_env, path_env = _process_env(ctx.attrs.env)
+    plain_env, path_env = _process_env(compile_ctx, ctx.attrs.env)
 
     rustdoc_cmd = cmd_args(
-        toolchain_info.rustc_action,
         [cmd_args("--env=", k, "=", v, delimiter = "") for k, v in plain_env.items()],
         [cmd_args("--path-env=", k, "=", v, delimiter = "") for k, v in path_env.items()],
         cmd_args(str(ctx.label.raw_target()), format = "--env=RUSTDOC_BUCK_TARGET={}"),
@@ -182,6 +182,13 @@ def generate_rustdoc(
             )
 
     rustdoc_cmd.hidden(toolchain_info.rustdoc, compile_ctx.symlinked_srcs)
+
+    rustdoc_cmd = _long_command(
+        ctx = ctx,
+        exe = toolchain_info.rustc_action,
+        args = rustdoc_cmd,
+        argfile_name = "{}.args".format(subdir),
+    )
 
     ctx.actions.run(rustdoc_cmd, category = "rustdoc")
 
@@ -248,7 +255,6 @@ def generate_rustdoc_test(
     )
 
     link_args.add(ctx.attrs.doc_linker_flags or [])
-    link_args.add(cxx_by_platform(ctx, ctx.attrs.doc_platform_linker_flags or []))
 
     linker_argsfile, _ = ctx.actions.write(
         "{}/__{}_linker_args.txt".format(common_args.subdir, common_args.tempfile),
@@ -262,7 +268,6 @@ def generate_rustdoc_test(
         runtool = ["--runtool=/usr/bin/env"]
 
     rustdoc_cmd = cmd_args(
-        toolchain_info.rustdoc,
         "--test",
         "-Zunstable-options",
         cmd_args("--test-builder=", toolchain_info.compiler, delimiter = ""),
@@ -282,7 +287,12 @@ def generate_rustdoc_test(
 
     rustdoc_cmd.hidden(compile_ctx.symlinked_srcs, hidden, runtime_files)
 
-    return rustdoc_cmd
+    return _long_command(
+        ctx = ctx,
+        exe = toolchain_info.rustdoc,
+        args = rustdoc_cmd,
+        argfile_name = "{}.args".format(common_args.subdir),
+    )
 
 # Generate multiple compile artifacts so that distinct sets of artifacts can be
 # generated concurrently.
@@ -379,13 +389,14 @@ def rust_compile(
             params = params,
         )
 
+    pdb_artifact = None
     if crate_type_linked(params.crate_type) and not common_args.is_check:
         subdir = common_args.subdir
         tempfile = common_args.tempfile
 
         # If this crate type has an associated native dep link style, include deps
         # of that style.
-        (link_args, hidden, _dwo_dir_unused_in_rust, _pdb_artifact) = make_link_args(
+        (link_args, hidden, _dwo_dir_unused_in_rust, pdb_artifact) = make_link_args(
             ctx,
             [
                 LinkArgs(flags = extra_link_args),
@@ -475,7 +486,7 @@ def rust_compile(
     else:
         filtered_outputs = outputs
 
-    return RustcOutput(outputs = filtered_outputs, diag = diag)
+    return RustcOutput(outputs = filtered_outputs, diag = diag, pdb = pdb_artifact)
 
 # --extern <crate>=<path> for direct dependencies
 # -Ldependency=<dir> for transitive dependencies
@@ -770,32 +781,14 @@ def _linker_args(
         ctx.attrs.linker_flags,
     )
 
-    # Now we create a wrapper to actually run the linker. Use $(cat <<heredoc) to
-    # combine the multiline command into a single logical command.
-    if ctx.attrs._exec_os_type[OsLookup].platform == "windows":
-        wrapper, _ = ctx.actions.write(
-            ctx.actions.declare_output("__linker_wrapper.bat"),
-            [
-                "@echo off",
-                cmd_args(cmd_args(_shell_quote(linker), delimiter = "^\n "), format = "{} %*\n"),
-            ],
-            allow_args = True,
-        )
-    else:
-        wrapper, _ = ctx.actions.write(
-            ctx.actions.declare_output("__linker_wrapper.sh"),
-            [
-                "#!/bin/bash",
-                cmd_args(cmd_args(_shell_quote(linker), delimiter = " \\\n"), format = "{} \"$@\"\n"),
-            ],
-            is_executable = True,
-            allow_args = True,
-        )
+    linker_wrapper = cmd_script(
+        ctx = ctx,
+        name = "linker_wrapper",
+        cmd = linker,
+        os = ScriptOs("windows" if ctx.attrs._exec_os_type[OsLookup].platform == "windows" else "unix"),
+    )
 
-    return cmd_args(wrapper, format = "-Clinker={}").hidden(linker)
-
-def _shell_quote(args: "cmd_args") -> "cmd_args":
-    return cmd_args(args, quote = "shell")
+    return cmd_args(linker_wrapper, format = "-Clinker={}")
 
 # Returns the full label and its hash. The full label is used for `-Cmetadata`
 # which provided the primary disambiguator for two otherwise identically named
@@ -916,17 +909,15 @@ def _rustc_invoke(
         env: {str.type: ["resolved_macro", "artifact"]} = {}) -> ({str.type: "artifact"}, ["artifact", None]):
     toolchain_info = compile_ctx.toolchain_info
 
-    plain_env, path_env = _process_env(ctx.attrs.env)
+    plain_env, path_env = _process_env(compile_ctx, ctx.attrs.env)
 
-    more_plain_env, more_path_env = _process_env(env)
+    more_plain_env, more_path_env = _process_env(compile_ctx, env)
     plain_env.update(more_plain_env)
     path_env.update(more_path_env)
 
     # Save diagnostic outputs
     json_diag = ctx.actions.declare_output("{}-{}.json".format(prefix, diag))
     txt_diag = ctx.actions.declare_output("{}-{}.txt".format(prefix, diag))
-
-    rustc_action = cmd_args(toolchain_info.rustc_action)
 
     compile_cmd = cmd_args(
         cmd_args(json_diag.as_output(), format = "--diag-json={}"),
@@ -952,7 +943,13 @@ def _rustc_invoke(
 
     compile_cmd.add(rustc_cmd)
     compile_cmd.hidden(toolchain_info.compiler, compile_ctx.symlinked_srcs)
-    compile_cmd_file, extra_args = ctx.actions.write("{}-{}.args".format(prefix, diag), compile_cmd, allow_args = True)
+
+    compile_cmd = _long_command(
+        ctx = ctx,
+        exe = toolchain_info.rustc_action,
+        args = compile_cmd,
+        argfile_name = "{}-{}.args".format(prefix, diag),
+    )
 
     incremental_enabled = ctx.attrs.incremental_enabled
     local_only = False
@@ -964,7 +961,7 @@ def _rustc_invoke(
 
     identifier = "{} {} [{}]".format(prefix, short_cmd, diag)
     ctx.actions.run(
-        cmd_args(rustc_action, cmd_args(compile_cmd_file, format = "@{}")).hidden(compile_cmd, extra_args),
+        compile_cmd,
         local_only = local_only,
         prefer_local = prefer_local,
         category = "rustc",
@@ -973,6 +970,17 @@ def _rustc_invoke(
     )
 
     return ({diag + ".json": json_diag, diag + ".txt": txt_diag}, build_status)
+
+# Our rustc and rustdoc commands can have arbitrarily large number of `--extern`
+# flags, so write to file to avoid hitting the platform's limit on command line
+# length. This limit is particularly small on Windows.
+def _long_command(
+        ctx: "context",
+        exe: RunInfo.type,
+        args: "cmd_args",
+        argfile_name: str.type) -> "cmd_args":
+    argfile, hidden = ctx.actions.write(argfile_name, args, allow_args = True)
+    return cmd_args(exe, cmd_args(argfile, format = "@{}")).hidden(args, hidden)
 
 # Separate env settings into "plain" and "with path". Path env vars are often
 # used in Rust `include!()` and similar directives, which always interpret the
@@ -983,6 +991,7 @@ def _rustc_invoke(
 # distinguish path from non-path. (This will not work if the value contains both
 # path and non-path content, but we'll burn that bridge when we get to it.)
 def _process_env(
+        compile_ctx: CompileContext.type,
         env: {str.type: ["resolved_macro", "artifact"]}) -> ({str.type: "cmd_args"}, {str.type: "cmd_args"}):
     # Values with inputs (ie artifact references).
     path_env = {}
@@ -1000,5 +1009,49 @@ def _process_env(
             # Variable may have "\\n" as well.
             # Example: \\n\n -> \\\n\n -> \\\\n\\n
             plain_env[k] = v.replace_regex("\\\\n", "\\\n").replace_regex("\\n", "\\n")
+
+    # If CARGO_MANIFEST_DIR is not already expressed in terms of $(location ...)
+    # of some target, then interpret it as a relative path inside of the crate's
+    # sources.
+    #
+    # For example in the following case:
+    #
+    #     http_archive(
+    #         name = "foo.crate",
+    #         ...
+    #     )
+    #
+    #     rust_library(
+    #         name = "foo",
+    #         srcs = [":foo.crate"],
+    #         crate_root = "foo.crate/src/lib.rs",
+    #         env = {
+    #             "CARGO_MANIFEST_DIR": "foo.crate",
+    #         },
+    #     )
+    #
+    # then the manifest directory refers to the directory which is the parent of
+    # `src` inside the archive.
+    #
+    # By putting the environment variable into path_env, rustc_action.py will
+    # take care of turning this into an absolute path before rustc sees it. This
+    # matches Cargo which also always provides CARGO_MANIFEST_DIR as an absolute
+    # path. A relative path would be problematic because it can't simultaneously
+    # support both of the following real-world cases: `include!` which resolves
+    # relative paths relative to the file containing the include:
+    #
+    #     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/thing.rs"));
+    #
+    # and proc macros using std::fs to read thing like .pest grammars, which
+    # would need paths relative to the directory that rustc got invoked in
+    # (which is the repo root in Buck builds).
+    cargo_manifest_dir = plain_env.pop("CARGO_MANIFEST_DIR", None)
+    if cargo_manifest_dir:
+        path_env["CARGO_MANIFEST_DIR"] = cmd_args(
+            compile_ctx.symlinked_srcs,
+            "/",
+            cargo_manifest_dir,
+            delimiter = "",
+        )
 
     return (plain_env, path_env)

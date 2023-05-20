@@ -12,6 +12,7 @@ load("@prelude//apple/user:apple_selective_debugging.bzl", "AppleSelectiveDebugg
 load("@prelude//apple/user:resource_group_map.bzl", "resource_group_map_attr")
 load("@prelude//cxx:headers.bzl", "CPrecompiledHeaderInfo")
 load("@prelude//cxx:omnibus.bzl", "omnibus_environment_attr")
+load("@prelude//linking:execution_preference.bzl", "link_execution_preference_attr")
 load("@prelude//linking:link_info.bzl", "LinkOrdering")
 load("@prelude//decls/common.bzl", "LinkableDepType", "Linkage")
 
@@ -31,7 +32,6 @@ def get_apple_xctoolchain_bundle_id_attr():
     # FIXME: prelude// should be standalone (not refer to fbcode//)
     return attrs.toolchain_dep(default = "fbcode//buck2/platform/toolchain:apple-xctoolchain-bundle-id")
 
-APPLE_LINK_LIBRARIES_LOCALLY_OVERRIDE_ATTR_NAME = "_link_libraries_locally_override"
 APPLE_ARCHIVE_OBJECTS_LOCALLY_OVERRIDE_ATTR_NAME = "_archive_objects_locally_override"
 APPLE_USE_ENTITLEMENTS_WHEN_ADHOC_CODE_SIGNING_CONFIG_OVERRIDE_ATTR_NAME = "_use_entitlements_when_adhoc_code_signing"
 APPLE_USE_ENTITLEMENTS_WHEN_ADHOC_CODE_SIGNING_ATTR_NAME = "use_entitlements_when_adhoc_code_signing"
@@ -65,6 +65,7 @@ def apple_test_extra_attrs():
         # The resulting test bundle should have .xctest extension.
         "extension": attrs.string(default = "xctest"),
         "extra_xcode_sources": attrs.list(attrs.source(allow_directory = True), default = []),
+        "link_execution_preference": link_execution_preference_attr(),
         "link_ordering": attrs.option(attrs.enum(LinkOrdering.values()), default = None),
         # Used to create the shared test library. Any library deps whose `preferred_linkage` isn't "shared" will
         # be treated as "static" deps and linked into the shared test library.
@@ -78,8 +79,8 @@ def apple_test_extra_attrs():
         "resource_group_map": attrs.option(attrs.string(), default = None),
         "stripped": attrs.bool(default = False),
         "_apple_toolchain": get_apple_toolchain_attr(),
+        "_ios_booted_simulator": attrs.default_only(attrs.dep(default = "fbsource//xplat/buck2/platform/apple:ios_booted_simulator", providers = [LocalResourceInfo])),
         "_omnibus_environment": omnibus_environment_attr(),
-        APPLE_LINK_LIBRARIES_LOCALLY_OVERRIDE_ATTR_NAME: attrs.option(attrs.bool(), default = None),
     }
     attribs.update(_apple_bundle_like_common_attrs())
     return attribs

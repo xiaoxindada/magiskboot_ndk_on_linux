@@ -6,9 +6,11 @@
 # of this source tree.
 
 load("@prelude//apple/swift:swift_toolchain.bzl", "swift_toolchain_impl")
+load("@prelude//apple/swift:swift_toolchain_types.bzl", "SwiftObjectFormat")
 load("@prelude//cxx:headers.bzl", "CPrecompiledHeaderInfo")
 load("@prelude//cxx:omnibus.bzl", "omnibus_environment_attr")
 load("@prelude//cxx/user:link_group_map.bzl", "link_group_map_attr")
+load("@prelude//linking:execution_preference.bzl", "link_execution_preference_attr")
 load("@prelude//linking:link_info.bzl", "LinkOrdering")
 load("@prelude//decls/common.bzl", "Linkage")
 load(":apple_asset_catalog.bzl", "apple_asset_catalog_impl")
@@ -23,7 +25,6 @@ load(":apple_resource.bzl", "apple_resource_impl")
 load(
     ":apple_rules_impl_utility.bzl",
     "APPLE_ARCHIVE_OBJECTS_LOCALLY_OVERRIDE_ATTR_NAME",
-    "APPLE_LINK_LIBRARIES_LOCALLY_OVERRIDE_ATTR_NAME",
     "apple_bundle_extra_attrs",
     "apple_test_extra_attrs",
     "get_apple_toolchain_attr",
@@ -63,8 +64,8 @@ extra_attributes = {
         "binary_linker_flags": attrs.list(attrs.arg(), default = []),
         "enable_distributed_thinlto": attrs.bool(default = False),
         "extra_xcode_sources": attrs.list(attrs.source(allow_directory = True), default = []),
+        "link_execution_preference": link_execution_preference_attr(),
         "link_group_map": link_group_map_attr(),
-        "link_locally_override": attrs.option(attrs.bool(), default = None),
         "link_ordering": attrs.option(attrs.enum(LinkOrdering.values()), default = None),
         "precompiled_header": attrs.option(attrs.dep(providers = [CPrecompiledHeaderInfo]), default = None),
         "prefer_stripped_objects": attrs.bool(default = False),
@@ -78,6 +79,7 @@ extra_attributes = {
     "apple_bundle": apple_bundle_extra_attrs(),
     "apple_library": {
         "extra_xcode_sources": attrs.list(attrs.source(allow_directory = True), default = []),
+        "link_execution_preference": link_execution_preference_attr(),
         "link_group_map": link_group_map_attr(),
         "link_ordering": attrs.option(attrs.enum(LinkOrdering.values()), default = None),
         "precompiled_header": attrs.option(attrs.dep(providers = [CPrecompiledHeaderInfo]), default = None),
@@ -92,7 +94,6 @@ extra_attributes = {
         "_apple_xctoolchain": get_apple_xctoolchain_attr(),
         "_apple_xctoolchain_bundle_id": get_apple_xctoolchain_bundle_id_attr(),
         "_omnibus_environment": omnibus_environment_attr(),
-        APPLE_LINK_LIBRARIES_LOCALLY_OVERRIDE_ATTR_NAME: attrs.option(attrs.bool(), default = None),
         APPLE_ARCHIVE_OBJECTS_LOCALLY_OVERRIDE_ATTR_NAME: attrs.option(attrs.bool(), default = None),
     },
     "apple_package": {
@@ -120,12 +121,14 @@ extra_attributes = {
         "cxx_toolchain": attrs.toolchain_dep(),
         "dsymutil": attrs.exec_dep(providers = [RunInfo]),
         "dwarfdump": attrs.option(attrs.exec_dep(providers = [RunInfo]), default = None),
+        "extra_linker_outputs": attrs.set(attrs.string(), default = []),
         "ibtool": attrs.exec_dep(providers = [RunInfo]),
         "installer": attrs.default_only(attrs.label(default = "buck//src/com/facebook/buck/installer/apple:apple_installer")),
         "libtool": attrs.exec_dep(providers = [RunInfo]),
         "lipo": attrs.exec_dep(providers = [RunInfo]),
         "min_version": attrs.option(attrs.string(), default = None),
         "momc": attrs.exec_dep(providers = [RunInfo]),
+        "odrcov": attrs.option(attrs.exec_dep(providers = [RunInfo]), default = None),
         # A placeholder tool that can be used to set up toolchain constraints.
         # Useful when fat and thin toolchahins share the same underlying tools via `command_alias()`,
         # which requires setting up separate platform-specific aliases with the correct constraints.
@@ -165,6 +168,7 @@ extra_attributes = {
     },
     "swift_toolchain": {
         "architecture": attrs.option(attrs.string(), default = None),  # TODO(T115173356): Make field non-optional
+        "object_format": attrs.enum(SwiftObjectFormat.values(), default = "object"),
         # A placeholder tool that can be used to set up toolchain constraints.
         # Useful when fat and thin toolchahins share the same underlying tools via `command_alias()`,
         # which requires setting up separate platform-specific aliases with the correct constraints.

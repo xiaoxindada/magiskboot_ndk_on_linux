@@ -5,7 +5,7 @@
 # License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 # of this source tree.
 
-load("//open_source.bzl", "is_open_source")
+load("@prelude//open_source.bzl", "is_open_source")
 
 # NOTE: Currently, constraints can't be propagated via rule attrs and so need
 # to be hard-coded here.
@@ -15,7 +15,14 @@ _CONSTRAINTS = [
     "ovr_config//third-party/cuda/constraints:11.4.2",
     "ovr_config//third-party/cuda/constraints:11.8.0",
     "ovr_config//third-party/cuda/constraints:12",
+    "ovr_config//third-party/cudnn/constraints:8.5.0",
+    "ovr_config//third-party/cudnn/constraints:8.8.0",
+    "ovr_config//third-party/TensorRT/constraints:8.2.3.0",
+    "ovr_config//third-party/TensorRT/constraints:8.5.1.7",
+    "ovr_config//third-party/jemalloc/constraints:master",
+    "ovr_config//third-party/jemalloc/constraints:master-tp2",
     "ovr_config//third-party/pypi/transformers/constraints:3.4.0",
+    "ovr_config//third-party/pypi/transformers/constraints:3.4.0-transitional",
     "ovr_config//third-party/pypi/transformers/constraints:4.26.0",
     "ovr_config//third-party/python/constraints:3.10",
     "ovr_config//third-party/python/constraints:3.10.cinder",

@@ -15,12 +15,14 @@ AppleToolchainInfo = provider(fields = [
     "cxx_toolchain_info",  # "CxxToolchainInfo"
     "dsymutil",  # "RunInfo"
     "dwarfdump",  # ["RunInfo", None]
+    "extra_linker_outputs",  # [str.type]
     "ibtool",  # "RunInfo"
     "installer",  # label
     "libtool",  # "RunInfo"
     "lipo",  # "RunInfo"
     "min_version",  # [None, str.type]
     "momc",  # "RunInfo"
+    "odrcov",  # ["RunInfo", None]
     "platform_path",  # [str.type, artifact]
     "sdk_build_version",  # "[None, str.type]"
     # SDK name to be passed to tools (e.g. actool), equivalent to ApplePlatform::getExternalName() in v1.
@@ -38,6 +40,7 @@ AppleToolchainInfo = provider(fields = [
 AppleToolsInfo = provider(fields = [
     "assemble_bundle",  # RunInfo
     "dry_codesign_tool",  # "RunInfo"
+    "adhoc_codesign_tool",  # "RunInfo"
     "selective_debugging_scrubber",  # "RunInfo"
     "info_plist_processor",  # RunInfo
     "make_modulemap",  # "RunInfo"

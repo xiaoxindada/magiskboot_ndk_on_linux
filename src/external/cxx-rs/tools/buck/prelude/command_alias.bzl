@@ -33,7 +33,7 @@ def _command_alias_impl_target_unix(ctx, exec_is_windows: bool.type):
 
         for (k, v) in ctx.attrs.env.items():
             # TODO(akozhevnikov): maybe check environment variable is not conflicting with pre-existing one
-            trampoline_args.add(cmd_args(["export ", k, "=", v], delimiter = ""))
+            trampoline_args.add(cmd_args(["export ", k, "=", cmd_args(v, quote = "shell")], delimiter = ""))
 
         if len(ctx.attrs.platform_exe.items()) > 0:
             trampoline_args.add('case "$(uname)" in')
@@ -183,25 +183,10 @@ def _relativize_path_windows(
         trampoline_args: "cmd_args") -> "artifact":
     # FIXME(ndmitchell): more straightforward relativization with better API
     non_materialized_reference = ctx.actions.write("dummy", "")
-    trampoline_args.relative_to(non_materialized_reference, parent = 1).absolute_prefix("__BUCK_COMMAND_ALIAS_ABSOLUTE__/")
+    trampoline_args.relative_to(non_materialized_reference, parent = 1).absolute_prefix(var + "/")
 
-    trampoline_tmp, _ = ctx.actions.write("__command_alias_trampoline.{}.pre".format(extension), trampoline_args, allow_args = True)
+    trampoline, _ = ctx.actions.write("__command_alias_trampoline.{}".format(extension), trampoline_args, allow_args = True)
 
-    # TODO: We might need to put some care around quoting as mentioned in the sh based implementation above
-    trampoline = ctx.actions.declare_output("__command_alias_trampoline.{}".format(extension))
-
-    # Replace __BUCK_COMMAND_ALIAS_ABSOLUTE__ with the BUCK_COMMAND_ALIAS_ABSOLUTE environment variable set above
-    # so that the all paths are fully specified
-    ctx.actions.run(
-        [
-            _get_run_info_from_exe(ctx.attrs._find_and_replace_bat),
-            "__BUCK_COMMAND_ALIAS_ABSOLUTE__",
-            var,
-            trampoline_tmp,
-            trampoline.as_output(),
-        ],
-        category = "sed",
-    )
     return trampoline
 
 def _add_platform_case_to_trampoline_args(trampoline_args: "cmd_args", platform_name: str.type, base: RunInfo.type, args: ["_arglike"]):

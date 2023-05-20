@@ -8,10 +8,7 @@
 #include <daemon.hpp>
 #include <selinux.hpp>
 #include <db.hpp>
-#include <resetprop.hpp>
 #include <flags.h>
-
-#include <core-rs.cpp>
 
 #include "core.hpp"
 
@@ -330,7 +327,7 @@ static void daemon_entry() {
     switch_cgroup("/acct", pid);
     switch_cgroup("/dev/cg2_bpf", pid);
     switch_cgroup("/sys/fs/cgroup", pid);
-    if (getprop("ro.config.per_app_memcg") != "false") {
+    if (get_prop("ro.config.per_app_memcg") != "false") {
         switch_cgroup("/dev/memcg/apps", pid);
     }
 
@@ -350,7 +347,7 @@ static void daemon_entry() {
     });
     if (SDK_INT < 0) {
         // In case some devices do not store this info in build.prop, fallback to getprop
-        auto sdk = getprop("ro.build.version.sdk");
+        auto sdk = get_prop("ro.build.version.sdk");
         if (!sdk.empty()) {
             SDK_INT = parse_int(sdk);
         }
