@@ -22,7 +22,7 @@
 
 int quit_signals[] = { SIGALRM, SIGABRT, SIGHUP, SIGPIPE, SIGQUIT, SIGTERM, SIGINT, 0 };
 
-static void usage(int status) {
+[[noreturn]] static void usage(int status) {
     FILE *stream = (status == EXIT_SUCCESS) ? stdout : stderr;
 
     fprintf(stream,
@@ -30,6 +30,10 @@ static void usage(int status) {
     "Usage: su [options] [-] [user [argument...]]\n\n"
     "Options:\n"
     "  -c, --command COMMAND         pass COMMAND to the invoked shell\n"
+    "  -g, --group GROUP             Specify the primary group\n"
+    "  -G, --supp-group GROUP        Specify a supplementary group. The first specified supplementary group is also used as a primary group if the option --group is not specified.\n"
+    "  -z, --context CONTEXT         change SELinux context\n"
+    "  -t, --target PID              PID to take mount namespace from\n"
     "  -h, --help                    display this help message and exit\n"
     "  -, -l, --login                pretend the shell to be a login shell\n"
     "  -m, -p,\n"
@@ -85,6 +89,9 @@ int su_client_main(int argc, char *argv[]) {
             { "version",                no_argument,        nullptr, 'v' },
             { "context",                required_argument,  nullptr, 'z' },
             { "mount-master",           no_argument,        nullptr, 'M' },
+            { "target",                 required_argument,  nullptr, 't' },
+            { "group",                  required_argument,  nullptr, 'g' },
+            { "supp-group",             required_argument,  nullptr, 'G' },
             { nullptr, 0, nullptr, 0 },
     };
 
@@ -98,7 +105,7 @@ int su_client_main(int argc, char *argv[]) {
             strcpy(argv[i], "-M");
     }
 
-    while ((c = getopt_long(argc, argv, "c:hlmps:Vvuz:M", long_opts, nullptr)) != -1) {
+    while ((c = getopt_long(argc, argv, "c:hlmps:Vvuz:Mt:g:G:", long_opts, nullptr)) != -1) {
         switch (c) {
             case 'c':
                 for (int i = optind - 1; i < argc; ++i) {
@@ -110,7 +117,6 @@ int su_client_main(int argc, char *argv[]) {
                 break;
             case 'h':
                 usage(EXIT_SUCCESS);
-                break;
             case 'l':
                 su_req.login = true;
                 break;
@@ -128,10 +134,32 @@ int su_client_main(int argc, char *argv[]) {
                 printf("%s\n", MAGISK_VERSION ":MAGISKSU");
                 exit(EXIT_SUCCESS);
             case 'z':
-                // Do nothing, placed here for legacy support :)
+                su_req.context = optarg;
                 break;
             case 'M':
-                su_req.mount_master = true;
+            case 't':
+                if (su_req.target != -1) {
+                    fprintf(stderr, "Can't use -M and -t at the same time\n");
+                    usage(EXIT_FAILURE);
+                }
+                if (optarg == nullptr) {
+                    su_req.target = 0;
+                } else {
+                    su_req.target = parse_int(optarg);
+                    if (*optarg == '-' || su_req.target == -1) {
+                        fprintf(stderr, "Invalid PID: %s\n", optarg);
+                        usage(EXIT_FAILURE);
+                    }
+                }
+                break;
+            case 'g':
+            case 'G':
+                if (int gid = parse_int(optarg); gid >= 0) {
+                    su_req.gids.insert(c == 'g' ? su_req.gids.begin() : su_req.gids.end(), gid);
+                } else {
+                    fprintf(stderr, "Invalid GID: %s\n", optarg);
+                    usage(EXIT_FAILURE);
+                }
                 break;
             default:
                 /* Bionic getopt_long doesn't terminate its error output by newline */
@@ -164,6 +192,8 @@ int su_client_main(int argc, char *argv[]) {
     xwrite(fd, &su_req, sizeof(su_req_base));
     write_string(fd, su_req.shell);
     write_string(fd, su_req.command);
+    write_string(fd, su_req.context);
+    write_vector(fd, su_req.gids);
 
     // Wait for ack from daemon
     if (read_int(fd)) {

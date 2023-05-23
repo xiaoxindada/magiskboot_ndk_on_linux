@@ -230,11 +230,20 @@ static shared_ptr<su_info> get_su_info(unsigned uid) {
 }
 
 // Set effective uid back to root, otherwise setres[ug]id will fail if uid isn't root
-static void set_identity(unsigned uid) {
+static void set_identity(uid_t uid, const std::vector<uid_t> &groups) {
     if (seteuid(0)) {
         PLOGE("seteuid (root)");
     }
-    if (setresgid(uid, uid, uid)) {
+    gid_t gid;
+    if (groups.size() > 0) {
+        if (setgroups(groups.size(), groups.data())) {
+            PLOGE("setgroups");
+        }
+        gid = groups[0];
+    } else {
+        gid = uid;
+    }
+    if (setresgid(gid, gid, gid)) {
         PLOGE("setresgid (%u)", uid);
     }
     if (setresuid(uid, uid, uid)) {
@@ -254,7 +263,9 @@ void su_daemon_handler(int client, const sock_cred *cred) {
     // Read su_request
     if (xxread(client, &ctx.req, sizeof(su_req_base)) < 0
         || !read_string(client, ctx.req.shell)
-        || !read_string(client, ctx.req.command)) {
+        || !read_string(client, ctx.req.command)
+        || !read_string(client, ctx.req.context)
+        || !read_vector(client, ctx.req.gids)) {
         LOGW("su: remote process probably died, abort\n");
         ctx.info.reset();
         write_int(client, DENY);
@@ -384,20 +395,24 @@ void su_daemon_handler(int client, const sock_cred *cred) {
     close(client);
 
     // Handle namespaces
-    if (ctx.req.mount_master)
+    if (ctx.req.target == -1)
+        ctx.req.target = ctx.pid;
+    else if (ctx.req.target == 0)
         ctx.info->cfg[SU_MNT_NS] = NAMESPACE_MODE_GLOBAL;
+    else if (ctx.info->cfg[SU_MNT_NS] == NAMESPACE_MODE_GLOBAL)
+        ctx.info->cfg[SU_MNT_NS] = NAMESPACE_MODE_REQUESTER;
     switch (ctx.info->cfg[SU_MNT_NS]) {
         case NAMESPACE_MODE_GLOBAL:
             LOGD("su: use global namespace\n");
             break;
         case NAMESPACE_MODE_REQUESTER:
-            LOGD("su: use namespace of pid=[%d]\n", ctx.pid);
-            if (switch_mnt_ns(ctx.pid))
+            LOGD("su: use namespace of pid=[%d]\n", ctx.req.target);
+            if (switch_mnt_ns(ctx.req.target))
                 LOGD("su: setns failed, fallback to global\n");
             break;
         case NAMESPACE_MODE_ISOLATE:
             LOGD("su: use new isolated namespace\n");
-            switch_mnt_ns(ctx.pid);
+            switch_mnt_ns(ctx.req.target);
             xunshare(CLONE_NEWNS);
             xmount(nullptr, "/", nullptr, MS_PRIVATE | MS_REC, nullptr);
             break;
@@ -443,7 +458,11 @@ void su_daemon_handler(int client, const sock_cred *cred) {
     sigset_t block_set;
     sigemptyset(&block_set);
     sigprocmask(SIG_SETMASK, &block_set, nullptr);
-    set_identity(ctx.req.uid);
+    if (!ctx.req.context.empty() && selinux_enabled()) {
+        auto f = xopen_file("/proc/self/attr/exec", "we");
+        if (f) fprintf(f.get(), "%s", ctx.req.context.data());
+    }
+    set_identity(ctx.req.uid, ctx.req.gids);
     execvp(ctx.req.shell.data(), (char **) argv);
     fprintf(stderr, "Cannot execute %s: %s\n", ctx.req.shell.data(), strerror(errno));
     PLOGE("exec");
