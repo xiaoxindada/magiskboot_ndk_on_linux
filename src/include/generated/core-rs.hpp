@@ -1,5 +1,5 @@
 #pragma once
-#include "core.hpp"
+#include "resetprop/resetprop.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
