@@ -1,9 +1,12 @@
 pub use logging::*;
+// Has to be pub so all symbols in that crate is included
+pub use magiskpolicy;
 
 mod logging;
 
-#[cxx::bridge(namespace = "rust")]
-pub mod ffi2 {
+#[cxx::bridge]
+pub mod ffi {
+    #[namespace = "rust"]
     extern "Rust" {
         fn setup_klog();
     }

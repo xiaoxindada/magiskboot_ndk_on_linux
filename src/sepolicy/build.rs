@@ -4,5 +4,5 @@ use crate::gen::gen_cxx_binding;
 mod gen;
 
 fn main() {
-    gen_cxx_binding("init-rs");
+    gen_cxx_binding("policy-rs");
 }
