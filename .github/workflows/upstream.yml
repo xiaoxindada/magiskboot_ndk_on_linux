@@ -20,18 +20,19 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup environment
-        run: |
-          sudo apt-get install -y git wget curl zip unzip ssh
-
       - name: Clone repo
         run: |
           git clone --recurse-submodules https://github.com/xiaoxindada/magiskboot_ndk_on_linux.git magiskboot
 
+      - name: Setup environment
+        run: |
+          sudo apt-get install -y git
+
       - name: Update source
         run: |
           cd $GITHUB_WORKSPACE/magiskboot
-          sudo ./build.sh update_code
+          pip3 install wget
+          python3 ./build.py --update_code
 
       - name: Create commit and push
         run: |

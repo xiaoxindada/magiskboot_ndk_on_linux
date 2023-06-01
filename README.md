@@ -5,13 +5,10 @@
 ## 克隆源码:
 > git clone --recurse-submodules https://github.com/xiaoxindada/magiskboot_ndk_on_linux.git  
 > cd magiskboot_ndk_on_linux  
-> git pull --recurse-submodules  
 
-## 首次编译:  
-> ./build.sh setup  
-
-## 再次编译:
-> ./build.sh  
+## 编译:  
+>  sudo pip3 install wget
+>  python3 ./build.py --build_binary
 
 ## 生成物路径:
 > out  

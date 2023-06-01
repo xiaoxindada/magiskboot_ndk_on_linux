@@ -5,5 +5,5 @@
 /ndk
 *.zip
 *.gz
-src/prebuilt_libs/
-
+/src/target/
+/generated

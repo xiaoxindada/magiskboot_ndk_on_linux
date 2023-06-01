@@ -12,20 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup Python2
-        uses: actions/setup-python@v3.1.2
-        with:
-          python-version: "2.7"
-
       - name: Setup Python3
-        uses: actions/setup-python@v3.1.2
+        uses: actions/setup-python@v4
         with:
-          python-version: "3.8"
-
-      - name: Setup environment
-        run: |
-          sudo apt-get update        
-          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev autoconf
+          python-version: "3.8.x"
 
       - name: Clone repo
         run: |
@@ -35,7 +25,8 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/magiskboot
           echo "MAGISK_VERSION=$(cat magisk_config.prop | grep "magisk.versionCode=" | cut -d '=' -f 2)" >> $GITHUB_ENV
-          bash ./build.sh setup
+          pip3 install wget
+          python3 ./build.py --build_binary
           ls -al out/**
 
       - name: Compress out
