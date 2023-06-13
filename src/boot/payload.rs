@@ -7,7 +7,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use protobuf::{EnumFull, Message};
 
 use base::libc::c_char;
-use base::{ptr_to_str_result, ReadSeekExt, StrErr};
+use base::{ReadSeekExt, StrErr, Utf8CStr};
 use base::{ResultExt, WriteExt};
 
 use crate::ffi;
@@ -26,9 +26,9 @@ macro_rules! bad_payload {
 const PAYLOAD_MAGIC: &str = "CrAU";
 
 fn do_extract_boot_from_payload(
-    in_path: &str,
-    partition_name: Option<&str>,
-    out_path: Option<&str>,
+    in_path: &Utf8CStr,
+    partition_name: Option<&Utf8CStr>,
+    out_path: Option<&Utf8CStr>,
 ) -> anyhow::Result<()> {
     let mut reader = BufReader::new(if in_path == "-" {
         unsafe { File::from_raw_fd(0) }
@@ -64,7 +64,7 @@ fn do_extract_boot_from_payload(
     let manifest = {
         let manifest = &mut buf[..manifest_len];
         reader.read_exact(manifest)?;
-        DeltaArchiveManifest::parse_from_bytes(&manifest)?
+        DeltaArchiveManifest::parse_from_bytes(manifest)?
     };
     if !manifest.has_minor_version() || manifest.minor_version() != 0 {
         return Err(bad_payload!(
@@ -152,7 +152,7 @@ fn do_extract_boot_from_payload(
         match data_type {
             Type::REPLACE => {
                 out_file.seek(SeekFrom::Start(out_offset))?;
-                out_file.write_all(&data)?;
+                out_file.write_all(data)?;
             }
             Type::ZERO => {
                 for ext in operation.dst_extents.iter() {
@@ -193,15 +193,15 @@ pub fn extract_boot_from_payload(
         partition: *const c_char,
         out_path: *const c_char,
     ) -> anyhow::Result<()> {
-        let in_path = ptr_to_str_result(in_path)?;
-        let partition = match ptr_to_str_result(partition) {
+        let in_path = unsafe { Utf8CStr::from_ptr(in_path) }?;
+        let partition = match unsafe { Utf8CStr::from_ptr(partition) } {
             Ok(s) => Some(s),
-            Err(StrErr::NullPointer) => None,
+            Err(StrErr::NullPointerError) => None,
             Err(e) => Err(e)?,
         };
-        let out_path = match ptr_to_str_result(out_path) {
+        let out_path = match unsafe { Utf8CStr::from_ptr(out_path) } {
             Ok(s) => Some(s),
-            Err(StrErr::NullPointer) => None,
+            Err(StrErr::NullPointerError) => None,
             Err(e) => Err(e)?,
         };
         do_extract_boot_from_payload(in_path, partition, out_path)

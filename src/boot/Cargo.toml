@@ -17,3 +17,5 @@ cxx = { path = "../external/cxx-rs" }
 protobuf = { workspace = true }
 byteorder = { workspace = true }
 anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+size = { workspace = true }
