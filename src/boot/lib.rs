@@ -1,17 +1,16 @@
 #![feature(format_args_nl)]
 #![feature(btree_drain_filter)]
 
-extern crate core;
-
 pub use base;
-pub use cpio::*;
-pub use payload::*;
-pub use ramdisk::*;
+use cpio::*;
+use payload::*;
 
 mod cpio;
 mod payload;
+// Suppress warnings in generated code
+#[allow(warnings)]
+mod proto;
 mod ramdisk;
-mod update_metadata;
 
 #[cxx::bridge]
 pub mod ffi {
