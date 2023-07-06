@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "argh",
+    "argh_derive",
+    "argh_shared",
+]

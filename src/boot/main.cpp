@@ -57,9 +57,9 @@ Supported actions:
     Search <hexpattern1> in <file>, and replace it with <hexpattern2>
 
   cpio <incpio> [commands...]
-    Do cpio commands to <incpio> (modifications are done in-place)
-    Each command is a single argument, add quotes for each command.
-    See "cpio <incpio> --help" for supported commands.
+    Do cpio commands to <incpio> (modifications are done in-place).
+    Each command is a single argument; add quotes for each command.
+    See "cpio --help" for supported commands.
 
   dtb <file> <action> [args...]
     Do dtb related actions to <file>
@@ -177,9 +177,8 @@ int main(int argc, char *argv[]) {
         compress(action[8] == '=' ? &action[9] : "gzip", argv[2], argv[3]);
     } else if (argc > 4 && action == "hexpatch") {
         return hexpatch(byte_view(argv[2]), byte_view(argv[3]), byte_view(argv[4])) ? 0 : 1;
-    } else if (argc > 2 && action == "cpio"sv) {
-        if (!rust::cpio_commands(argc - 2, argv + 2))
-            usage(argv[0]);
+    } else if (argc > 2 && action == "cpio") {
+        return rust::cpio_commands(argc - 2, argv + 2) ? 0 : 1;
     } else if (argc > 3 && action == "dtb") {
         if (dtb_commands(argc - 2, argv + 2))
             usage(argv[0]);
