@@ -140,7 +140,7 @@ struct byte_view {
 
     // Bridging to Rust slice
     byte_view(rust::Slice<const uint8_t> o) : byte_view(o.data(), o.size()) {}
-    operator rust::Slice<const uint8_t>() { return rust::Slice<const uint8_t>(_buf, _sz); }
+    operator rust::Slice<const uint8_t>() const { return rust::Slice<const uint8_t>(_buf, _sz); }
 
     // String as bytes
     byte_view(const char *s, bool with_nul = true)
@@ -211,7 +211,7 @@ class byte_channel;
 struct heap_data : public byte_data {
     ALLOW_MOVE_ONLY(heap_data)
 
-    explicit heap_data(size_t sz) : byte_data(malloc(sz), sz) {}
+    explicit heap_data(size_t sz) : byte_data(calloc(sz, 1), sz) {}
     ~heap_data() { free(_buf); }
 
     // byte_channel needs to reallocate the internal buffer

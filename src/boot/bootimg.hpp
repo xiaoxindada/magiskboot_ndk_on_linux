@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <utility>
 #include <bitset>
+#include <cxx.h>
+
 #include "format.hpp"
 
 /******************
@@ -365,7 +367,6 @@ struct dyn_img_hdr {
     decl_str(cmdline)
     decl_str(id)
     decl_str(extra_cmdline)
-    uint32_t kernel_dt_size = 0;
 
     // v1/v2 specific
     decl_var(recovery_dtbo_size, 32)
@@ -425,7 +426,6 @@ size_t hdr_size() const override {      \
 }                                       \
 dyn_img_hdr *clone() const override {   \
     auto p = new name(raw);             \
-    p->kernel_dt_size = kernel_dt_size; \
     return p;                           \
 };
 
@@ -580,6 +580,7 @@ enum {
     NOOKHD_FLAG,
     ACCLAIM_FLAG,
     AMONET_FLAG,
+    AVB1_SIGNED_FLAG,
     AVB_FLAG,
     ZIMAGE_KERNEL,
     BOOT_FLAGS_MAX
@@ -604,6 +605,18 @@ struct boot_img {
      * Following pointers points within the read-only mmap region
      *************************************************************/
 
+    // Layout of the memory mapped region
+    // +---------+
+    // | head    | Vendor specific. Should be empty for standard AOSP boot images.
+    // +---------+
+    // | payload | The actual boot image, including the AOSP boot image header.
+    // +---------+
+    // | tail    | Data after payload. Usually contains signature/AVB information.
+    // +---------+
+
+    byte_view payload;
+    byte_view tail;
+
     // MTK headers
     const mtk_hdr *k_hdr;
     const mtk_hdr *r_hdr;
@@ -614,28 +627,19 @@ struct boot_img {
     // +---------------+
     // | kernel        | hdr->kernel_size()
     // +---------------+
-    // | z_info.tail   | z_info.tail_sz
+    // | z_info.tail   | z_info.tail.sz()
     // +---------------+
     const zimage_hdr *z_hdr;
     struct {
         uint32_t hdr_sz;
-        uint32_t tail_sz = 0;
-        const uint8_t *tail = nullptr;
+        byte_view tail;
     } z_info;
-
-    // Pointer to dtb that is embedded in kernel
-    const uint8_t *kernel_dtb;
-
-    // Pointer to end of image
-    const uint8_t *tail;
-    size_t tail_size = 0;
 
     // AVB structs
     const AvbFooter *avb_footer;
     const AvbVBMetaImageHeader *vbmeta;
 
     // Pointers to blocks defined in header
-    const uint8_t *hdr_addr;
     const uint8_t *kernel;
     const uint8_t *ramdisk;
     const uint8_t *second;
@@ -643,13 +647,20 @@ struct boot_img {
     const uint8_t *recovery_dtbo;
     const uint8_t *dtb;
 
-    // Pointer to blocks defined in header, but we do not care
-    const uint8_t *ignore;
-    size_t ignore_size = 0;
+    // dtb embedded in kernel
+    byte_view kernel_dtb;
+
+    // Blocks defined in header but we do not care
+    byte_view ignore;
 
     boot_img(const char *);
     ~boot_img();
 
-    void parse_image(const uint8_t *addr, format_t type);
-    dyn_img_hdr *create_hdr(const uint8_t *addr, format_t type);
+    bool parse_image(const uint8_t *addr, format_t type);
+    const std::pair<const uint8_t *, dyn_img_hdr *> create_hdr(const uint8_t *addr, format_t type);
+
+    // Rust FFI
+    rust::Slice<const uint8_t> get_payload() const { return payload; }
+    rust::Slice<const uint8_t> get_tail() const { return tail; }
+    bool verify(const char *cert = nullptr) const;
 };
