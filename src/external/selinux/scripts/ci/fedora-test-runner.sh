@@ -36,7 +36,7 @@ dnf install -y \
     libcap-devel \
     libcap-ng-devel \
     pam-devel \
-    pcre-devel \
+    pcre2-devel \
     xmlto \
     python3-devel \
     ruby-devel \
@@ -70,6 +70,7 @@ dnf install -y \
 cd "$SELINUX_DIR"
 
 # Show HEAD commit for sanity checking
+git config --global --add safe.directory "$SELINUX_DIR"
 git log --oneline -1
 
 #

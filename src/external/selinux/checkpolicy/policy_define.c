@@ -117,12 +117,11 @@ int insert_id(const char *id, int push)
 	char *newid = 0;
 	int error;
 
-	newid = (char *)malloc(strlen(id) + 1);
+	newid = strdup(id);
 	if (!newid) {
 		yyerror("out of memory");
 		return -1;
 	}
-	strcpy(newid, id);
 	if (push)
 		error = queue_push(id_queue, (queue_element_t) newid);
 	else
@@ -1417,7 +1416,7 @@ static int define_typebounds_helper(char *bounds_id, char *type_id)
 	if (!type->bounds)
 		type->bounds = bounds->s.value;
 	else if (type->bounds != bounds->s.value) {
-		yyerror2("type %s has inconsistent master {%s,%s}",
+		yyerror2("type %s has inconsistent bounds %s/%s",
 			 type_id,
 			 policydbp->p_type_val_to_name[type->bounds - 1],
 			 policydbp->p_type_val_to_name[bounds->s.value - 1]);
@@ -1634,6 +1633,15 @@ static int define_compute_type_helper(int which, avrule_t ** rule)
 	}
 	add = 1;
 	while ((id = queue_remove(id_queue))) {
+		if (strcmp(id, "self") == 0) {
+			free(id);
+			if (add == 0) {
+				yyerror("-self is not supported");
+				goto bad;
+			}
+			avrule->flags |= RULE_SELF;
+			continue;
+		}
 		if (set_types(&avrule->ttypes, id, &add, 0))
 			goto bad;
 	}
@@ -2200,7 +2208,7 @@ static int avrule_ioctl_partialdriver(struct av_ioctl_range_list *rangelist,
 	xperms = calloc(1, sizeof(av_extended_perms_t));
 	if (!xperms) {
 		yyerror("out of memory");
-		return - 1;
+		return -1;
 	}
 
 	r = rangelist;
@@ -2237,7 +2245,7 @@ static int avrule_ioctl_completedriver(struct av_ioctl_range_list *rangelist,
 	xperms = calloc(1, sizeof(av_extended_perms_t));
 	if (!xperms) {
 		yyerror("out of memory");
-		return - 1;
+		return -1;
 	}
 
 	r = rangelist;
@@ -2281,7 +2289,7 @@ static int avrule_ioctl_func(struct av_ioctl_range_list *rangelist,
 	xperms = calloc(1, sizeof(av_extended_perms_t));
 	if (!xperms) {
 		yyerror("out of memory");
-		return - 1;
+		return -1;
 	}
 
 	r = rangelist;
@@ -2344,11 +2352,11 @@ static int avrule_cpy(avrule_t *dest, const avrule_t *src)
 	dest->flags = src->flags;
 	if (type_set_cpy(&dest->stypes, &src->stypes)) {
 		yyerror("out of memory");
-		return - 1;
+		return -1;
 	}
 	if (type_set_cpy(&dest->ttypes, &src->ttypes)) {
 		yyerror("out of memory");
-		return - 1;
+		return -1;
 	}
 	dest->line = src->line;
 	dest->source_filename = strdup(source_file);
@@ -2362,11 +2370,12 @@ static int avrule_cpy(avrule_t *dest, const avrule_t *src)
 	src_perms = src->perms;
 	while (src_perms) {
 		dest_perms = (class_perm_node_t *) calloc(1, sizeof(class_perm_node_t));
-		class_perm_node_init(dest_perms);
 		if (!dest_perms) {
 			yyerror("out of memory");
 			return -1;
 		}
+		class_perm_node_init(dest_perms);
+
 		if (!dest->perms)
 			dest->perms = dest_perms;
 		else
@@ -3300,7 +3309,7 @@ int define_filename_trans(void)
 	type_datum_t *typdatum;
 	uint32_t otype;
 	unsigned int c, s, t;
-	int add, rc;
+	int add, self, rc;
 
 	if (pass == 1) {
 		/* stype */
@@ -3333,8 +3342,18 @@ int define_filename_trans(void)
 			goto bad;
 	}
 
-	add =1;
+	self = 0;
+	add = 1;
 	while ((id = queue_remove(id_queue))) {
+		if (strcmp(id, "self") == 0) {
+			free(id);
+			if (add == 0) {
+				yyerror("-self is not supported");
+				goto bad;
+			}
+			self = 1;
+			continue;
+		}
 		if (set_types(&ttypes, id, &add, 0))
 			goto bad;
 	}
@@ -3396,6 +3415,24 @@ int define_filename_trans(void)
 					goto bad;
 				}
 			}
+			if (self) {
+				rc = policydb_filetrans_insert(
+					policydbp, s+1, s+1, c+1, name,
+					NULL, otype, NULL
+				);
+				if (rc != SEPOL_OK) {
+					if (rc == SEPOL_EEXIST) {
+						yyerror2("duplicate filename transition for: filename_trans %s %s %s:%s",
+							name,
+							policydbp->p_type_val_to_name[s],
+							policydbp->p_type_val_to_name[s],
+							policydbp->p_class_val_to_name[c]);
+						goto bad;
+					}
+					yyerror("out of memory");
+					goto bad;
+				}
+			}
 		}
 	
 		/* Now add the real rule since we didn't find any duplicates */
@@ -3418,6 +3455,7 @@ int define_filename_trans(void)
 		}
 		ftr->tclass = c + 1;
 		ftr->otype = otype;
+		ftr->flags = self ? RULE_SELF : 0;
 	}
 
 	free(name);
@@ -3476,6 +3514,8 @@ static constraint_expr_t *constraint_expr_clone(const constraint_expr_t * expr)
 	constraint_expr_destroy(h);
 	return NULL;
 }
+
+#define PERMISSION_MASK(nprim) ((nprim) == PERM_SYMTAB_SIZE ? (~UINT32_C(0)) : ((UINT32_C(1) << (nprim)) - 1))
 
 int define_constraint(constraint_expr_t * expr)
 {
@@ -3590,6 +3630,22 @@ int define_constraint(constraint_expr_t * expr)
 			cladatum = policydbp->class_val_to_struct[i];
 			node = cladatum->constraints;
 
+			if (strcmp(id, "*") == 0) {
+				node->permissions = PERMISSION_MASK(cladatum->permissions.nprim);
+				continue;
+			}
+
+			if (strcmp(id, "~") == 0) {
+				node->permissions = ~node->permissions & PERMISSION_MASK(cladatum->permissions.nprim);
+				if (node->permissions == 0) {
+					yywarn("omitting constraint with no permission set");
+					cladatum->constraints = node->next;
+					constraint_expr_destroy(node->expr);
+					free(node);
+				}
+				continue;
+			}
+
 			perdatum =
 			    (perm_datum_t *) hashtab_search(cladatum->
 							    permissions.
@@ -3609,7 +3665,7 @@ int define_constraint(constraint_expr_t * expr)
 				}
 				if (!perdatum) {
 					yyerror2("permission %s is not"
-						 " defined", id);
+						 " defined for class %s", id, policydbp->p_class_val_to_name[i]);
 					free(id);
 					ebitmap_destroy(&classmap);
 					return -1;
@@ -4848,7 +4904,7 @@ bad:
 	return -1;
 }
 
-int define_devicetree_context()
+int define_devicetree_context(void)
 {
 	ocontext_t *newc, *c, *l, *head;
 
@@ -5239,7 +5295,7 @@ int define_netif_context(void)
 	return 0;
 }
 
-int define_ipv4_node_context()
+int define_ipv4_node_context(void)
 {	
 	char *id;
 	int rc = 0;
@@ -5290,6 +5346,14 @@ int define_ipv4_node_context()
 		goto out;
 	}
 
+	if (mask.s_addr != 0 && ((~mask.s_addr + 1) & ~mask.s_addr) != 0) {
+		yywarn("ipv4 mask is not contiguous");
+	}
+
+	if ((~mask.s_addr & addr.s_addr) != 0) {
+		yywarn("host bits in ipv4 address set");
+	}
+
 	newc = malloc(sizeof(ocontext_t));
 	if (!newc) {
 		yyerror("out of memory");
@@ -5323,6 +5387,40 @@ int define_ipv4_node_context()
 	rc = 0;
 out:
 	return rc;
+}
+
+static int ipv6_is_mask_contiguous(const struct in6_addr *mask)
+{
+	int filled = 1;
+	unsigned i;
+
+	for (i = 0; i < 16; i++) {
+		if ((((~mask->s6_addr[i] & 0xFF) + 1) & (~mask->s6_addr[i] & 0xFF)) != 0) {
+			return 0;
+		}
+		if (!filled && mask->s6_addr[i] != 0) {
+			return 0;
+		}
+
+		if (filled && mask->s6_addr[i] != 0xFF) {
+			filled = 0;
+		}
+	}
+
+	return 1;
+}
+
+static int ipv6_has_host_bits_set(const struct in6_addr *addr, const struct in6_addr *mask)
+{
+	unsigned i;
+
+	for (i = 0; i < 16; i++) {
+		if ((addr->s6_addr[i] & ~mask->s6_addr[i]) != 0) {
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 int define_ipv6_node_context(void)
@@ -5374,6 +5472,14 @@ int define_ipv6_node_context(void)
 		if (rc == 0)
 			rc = -1;
 		goto out;
+	}
+
+	if (!ipv6_is_mask_contiguous(&mask)) {
+		yywarn("ipv6 mask is not contiguous");
+	}
+
+	if (ipv6_has_host_bits_set(&addr, &mask)) {
+		yywarn("host bits in ipv6 address set");
 	}
 
 	newc = malloc(sizeof(ocontext_t));

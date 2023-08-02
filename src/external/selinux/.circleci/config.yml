@@ -13,12 +13,13 @@ jobs:
 
     # Install dependencies
     - run: sudo apt-get update -qq
-    - run: sudo apt-get install -qq bison clang clang-tools flex gawk gettext libaudit-dev libcap-dev libcap-ng-dev libcunit1-dev libdbus-glib-1-dev libpcre3-dev python3-dev python-dev ruby-dev swig xmlto
+    - run: sudo apt-get install -qq bison clang clang-tools flex gawk gettext libaudit-dev libcap-dev libcap-ng-dev libcunit1-dev libdbus-glib-1-dev libpcre2-dev python3-dev python-dev ruby-dev swig xmlto
 
     - run:
         name: Setup environment variables
         command: |
           echo 'export DESTDIR=$HOME/destdir' >> "$BASH_ENV"
+          echo 'export IS_CIRCLE_CI=1' >> "$BASH_ENV"
 
     # Download and install refpolicy headers for sepolgen tests
     - run:

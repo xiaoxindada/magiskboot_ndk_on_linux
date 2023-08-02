@@ -328,6 +328,13 @@ static const struct policydb_compat_info policydb_compat[] = {
 	 .target_platform = SEPOL_TARGET_SELINUX,
 	},
 	{
+	 .type = POLICY_BASE,
+	 .version = MOD_POLICYDB_VERSION_SELF_TYPETRANS,
+	 .sym_num = SYM_NUM,
+	 .ocon_num = OCON_IBENDPORT + 1,
+	 .target_platform = SEPOL_TARGET_SELINUX,
+	},
+	{
 	 .type = POLICY_MOD,
 	 .version = MOD_POLICYDB_VERSION_BASE,
 	 .sym_num = SYM_NUM,
@@ -446,7 +453,13 @@ static const struct policydb_compat_info policydb_compat[] = {
 	 .ocon_num = 0,
 	 .target_platform = SEPOL_TARGET_SELINUX,
 	},
-
+	{
+	 .type = POLICY_MOD,
+	 .version = MOD_POLICYDB_VERSION_SELF_TYPETRANS,
+	 .sym_num = SYM_NUM,
+	 .ocon_num = 0,
+	 .target_platform = SEPOL_TARGET_SELINUX,
+	},
 };
 
 #if 0
@@ -763,12 +776,11 @@ static int roles_init(policydb_t * p)
 		rc = -ENOMEM;
 		goto out;
 	}
-	key = malloc(strlen(OBJECT_R) + 1);
+	key = strdup(OBJECT_R);
 	if (!key) {
 		rc = -ENOMEM;
 		goto out_free_role;
 	}
-	strcpy(key, OBJECT_R);
 	rc = symtab_insert(p, SYM_ROLES, key, role,
 			   (p->policy_type ==
 			    POLICY_MOD ? SCOPE_REQ : SCOPE_DECL), 1,
@@ -1252,7 +1264,8 @@ int policydb_index_others(sepol_handle_t * handle,
 	if (!p->type_val_to_struct)
 		return -1;
 
-	cond_init_bool_indexes(p);
+	if (cond_init_bool_indexes(p))
+		return -1;
 
 	for (i = SYM_ROLES; i < SYM_NUM; i++) {
 		free(p->sym_val_to_name[i]);
@@ -2103,6 +2116,8 @@ static int common_read(policydb_t * p, hashtab_t h, struct policy_file *fp)
 	if (symtab_init(&comdatum->permissions, PERM_SYMTAB_SIZE))
 		goto bad;
 	comdatum->permissions.nprim = le32_to_cpu(buf[2]);
+	if (comdatum->permissions.nprim > PERM_SYMTAB_SIZE)
+		goto bad;
 	nel = le32_to_cpu(buf[3]);
 
 	key = malloc(len + 1);
@@ -2251,6 +2266,8 @@ static int class_read(policydb_t * p, hashtab_t h, struct policy_file *fp)
 	if (symtab_init(&cladatum->permissions, PERM_SYMTAB_SIZE))
 		goto bad;
 	cladatum->permissions.nprim = le32_to_cpu(buf[3]);
+	if (cladatum->permissions.nprim > PERM_SYMTAB_SIZE)
+		goto bad;
 	nel = le32_to_cpu(buf[4]);
 
 	ncons = le32_to_cpu(buf[5]);
@@ -2679,7 +2696,10 @@ static int filename_trans_read_one_compat(policydb_t *p, struct policy_file *fp)
 	if (rc < 0)
 		goto err;
 
-	stype  = le32_to_cpu(buf[0]);
+	stype = le32_to_cpu(buf[0]);
+	if (stype == 0)
+		goto err;
+
 	ttype  = le32_to_cpu(buf[1]);
 	tclass = le32_to_cpu(buf[2]);
 	otype  = le32_to_cpu(buf[3]);
@@ -2773,6 +2793,7 @@ static int filename_trans_read_one(policydb_t *p, struct policy_file *fp)
 		if (!datum)
 			goto err;
 
+		datum->next = NULL;
 		*dst = datum;
 
 		/* ebitmap_read() will at least init the bitmap */
@@ -2790,7 +2811,6 @@ static int filename_trans_read_one(policydb_t *p, struct policy_file *fp)
 
 		dst = &datum->next;
 	}
-	*dst = NULL;
 
 	if (ndatum > 1 && filename_trans_check_datum(first))
 		goto err;
@@ -2879,6 +2899,8 @@ static int ocontext_read_xen(const struct policydb_compat_info *info,
 				if (rc < 0)
 					return -1;
 				c->sid[0] = le32_to_cpu(buf[0]);
+				if (is_saturated(c->sid[0]))
+					return -1;
 				if (context_read_and_validate
 				    (&c->context[0], p, fp))
 					return -1;
@@ -2990,6 +3012,8 @@ static int ocontext_read_selinux(const struct policydb_compat_info *info,
 				if (rc < 0)
 					return -1;
 				c->sid[0] = le32_to_cpu(buf[0]);
+				if (is_saturated(c->sid[0]))
+					return -1;
 				if (context_read_and_validate
 				    (&c->context[0], p, fp))
 					return -1;
@@ -3810,10 +3834,11 @@ static int role_allow_rule_read(role_allow_rule_t ** r, struct policy_file *fp)
 	return 0;
 }
 
-static int filename_trans_rule_read(filename_trans_rule_t ** r, struct policy_file *fp)
+static int filename_trans_rule_read(policydb_t *p, filename_trans_rule_t **r,
+				    struct policy_file *fp)
 {
-	uint32_t buf[2], nel;
-	unsigned int i, len;
+	uint32_t buf[3], nel, i, len;
+	unsigned int entries;
 	filename_trans_rule_t *ftr, *lftr;
 	int rc;
 
@@ -3858,11 +3883,18 @@ static int filename_trans_rule_read(filename_trans_rule_t ** r, struct policy_fi
 		if (type_set_read(&ftr->ttypes, fp))
 			return -1;
 
-		rc = next_entry(buf, fp, sizeof(uint32_t) * 2);
+		if (p->policyvers >= MOD_POLICYDB_VERSION_SELF_TYPETRANS)
+			entries = 3;
+		else
+			entries = 2;
+
+		rc = next_entry(buf, fp, sizeof(uint32_t) * entries);
 		if (rc < 0)
 			return -1;
 		ftr->tclass = le32_to_cpu(buf[0]);
 		ftr->otype = le32_to_cpu(buf[1]);
+		if (p->policyvers >= MOD_POLICYDB_VERSION_SELF_TYPETRANS)
+			ftr->flags = le32_to_cpu(buf[2]);
 	}
 
 	return 0;
@@ -3926,6 +3958,8 @@ static int scope_index_read(scope_index_t * scope_index,
 	if (rc < 0)
 		return -1;
 	scope_index->class_perms_len = le32_to_cpu(buf[0]);
+	if (is_saturated(scope_index->class_perms_len))
+		return -1;
 	if (scope_index->class_perms_len == 0) {
 		scope_index->class_perms_map = NULL;
 		return 0;
@@ -3963,7 +3997,7 @@ static int avrule_decl_read(policydb_t * p, avrule_decl_t * decl,
 	}
 
 	if (p->policyvers >= MOD_POLICYDB_VERSION_FILENAME_TRANS &&
-	    filename_trans_rule_read(&decl->filename_trans_rules, fp))
+	    filename_trans_rule_read(p, &decl->filename_trans_rules, fp))
 		return -1;
 
 	if (p->policyvers >= MOD_POLICYDB_VERSION_RANGETRANS &&
@@ -3980,6 +4014,8 @@ static int avrule_decl_read(policydb_t * p, avrule_decl_t * decl,
 		if (rc < 0) 
 			return -1;
 		nprim = le32_to_cpu(buf[0]);
+		if (is_saturated(nprim))
+			return -1;
 		nel = le32_to_cpu(buf[1]);
 		for (j = 0; j < nel; j++) {
 			if (read_f[i] (p, decl->symtab[i].table, fp)) {
@@ -4106,12 +4142,12 @@ static int scope_read(policydb_t * p, int symnum, struct policy_file *fp)
 		goto cleanup;
 	scope->scope = le32_to_cpu(buf[0]);
 	scope->decl_ids_len = le32_to_cpu(buf[1]);
-	if (scope->decl_ids_len == 0) {
+	if (zero_or_saturated(scope->decl_ids_len)) {
 		ERR(fp->handle, "invalid scope with no declaration");
 		goto cleanup;
 	}
 	if ((scope->decl_ids =
-	     malloc(scope->decl_ids_len * sizeof(uint32_t))) == NULL) {
+	     calloc(scope->decl_ids_len, sizeof(uint32_t))) == NULL) {
 		goto cleanup;
 	}
 	rc = next_entry(scope->decl_ids, fp, sizeof(uint32_t) * scope->decl_ids_len);
@@ -4144,7 +4180,7 @@ static sepol_security_class_t policydb_string_to_security_class(
 	class_datum_t *tclass_datum;
 
 	tclass_datum = hashtab_search(policydb->p_classes.table,
-				      (hashtab_key_t) class_name);
+				      class_name);
 	if (!tclass_datum)
 		return 0;
 	return tclass_datum->s.value;
@@ -4164,7 +4200,7 @@ static sepol_access_vector_t policydb_string_to_av_perm(
 
 	perm_datum = (perm_datum_t *)
 			hashtab_search(tclass_datum->permissions.table,
-			(hashtab_key_t)perm_name);
+			perm_name);
 	if (perm_datum != NULL)
 		return UINT32_C(1) << (perm_datum->s.value - 1);
 
@@ -4173,7 +4209,7 @@ static sepol_access_vector_t policydb_string_to_av_perm(
 
 	perm_datum = (perm_datum_t *)
 			hashtab_search(tclass_datum->comdatum->permissions.table,
-			(hashtab_key_t)perm_name);
+			perm_name);
 
 	if (perm_datum != NULL)
 		return UINT32_C(1) << (perm_datum->s.value - 1);
@@ -4396,6 +4432,8 @@ int policydb_read(policydb_t * p, struct policy_file *fp, unsigned verbose)
 		if (rc < 0)
 			goto bad;
 		nprim = le32_to_cpu(buf[0]);
+		if (is_saturated(nprim))
+			goto bad;
 		nel = le32_to_cpu(buf[1]);
 		if (nel && !nprim) {
 			ERR(fp->handle, "unexpected items in symbol table with no symbol");
@@ -4500,14 +4538,10 @@ int policydb_read(policydb_t * p, struct policy_file *fp, unsigned verbose)
 	}
 
 	if (policy_type == POLICY_KERN) {
-		p->type_attr_map = malloc(p->p_types.nprim * sizeof(ebitmap_t));
-		p->attr_type_map = malloc(p->p_types.nprim * sizeof(ebitmap_t));
+		p->type_attr_map = calloc(p->p_types.nprim, sizeof(ebitmap_t));
+		p->attr_type_map = calloc(p->p_types.nprim, sizeof(ebitmap_t));
 		if (!p->type_attr_map || !p->attr_type_map)
 			goto bad;
-		for (i = 0; i < p->p_types.nprim; i++) {
-			ebitmap_init(&p->type_attr_map[i]);
-			ebitmap_init(&p->attr_type_map[i]);
-		}
 		for (i = 0; i < p->p_types.nprim; i++) {
 			if (r_policyvers >= POLICYDB_VERSION_AVTAB) {
 				if (ebitmap_read(&p->type_attr_map[i], fp))
@@ -4535,7 +4569,7 @@ int policydb_read(policydb_t * p, struct policy_file *fp, unsigned verbose)
 		}
 	}
 
-	if (validate_policydb(fp->handle, p))
+	if (policydb_validate(fp->handle, p))
 		goto bad;
 
 	return POLICYDB_SUCCESS;

@@ -51,7 +51,7 @@ struct spec {
 	bool regex_compiled; /* bool to indicate if the regex is compiled */
 	pthread_mutex_t regex_lock; /* lock for lazy compilation of regex */
 	mode_t mode;		/* mode format value */
-	int matches;		/* number of matching pathnames */
+	bool any_matches;	/* did any pathname match? */
 	int stem_id;		/* indicates which stem-compression item */
 	char hasMetaChars;	/* regular expression has meta-chars */
 	char from_mmap;		/* this spec is from an mmap of the data */
@@ -444,7 +444,6 @@ static inline int process_line(struct selabel_handle *rec,
 
 	items = read_spec_entries(line_buf, &errbuf, 3, &regex, &type, &context);
 	if (items < 0) {
-		rc = errno;
 		if (errbuf) {
 			selinux_log(SELINUX_ERROR,
 				    "%s:  line %u error due to: %s\n", path,
@@ -454,7 +453,6 @@ static inline int process_line(struct selabel_handle *rec,
 				    "%s:  line %u error due to: %m\n", path,
 				    lineno);
 		}
-		errno = rc;
 		return -1;
 	}
 

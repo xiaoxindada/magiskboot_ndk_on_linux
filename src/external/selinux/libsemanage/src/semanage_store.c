@@ -59,6 +59,7 @@ typedef struct dbase_policydb dbase_t;
 
 #include "debug.h"
 #include "utilities.h"
+#include "compressed_file.h"
 
 #define SEMANAGE_CONF_FILE "semanage.conf"
 /* relative path names to enum semanage_paths to special files and
@@ -114,6 +115,7 @@ static const char *semanage_sandbox_paths[SEMANAGE_STORE_NUM_PATHS] = {
 	"/disable_dontaudit",
 	"/preserve_tunables",
 	"/modules/disabled",
+	"/modules_checksum",
 	"/policy.kern",
 	"/file_contexts.local",
 	"/file_contexts.homedirs",
@@ -695,6 +697,10 @@ int semanage_store_access_check(void)
 
 /********************* other I/O functions *********************/
 
+static int semanage_rename(semanage_handle_t * sh, const char *tmp, const char *dst);
+int semanage_remove_directory(const char *path);
+static int semanage_copy_dir_flags(const char *src, const char *dst, int flag);
+
 /* Callback used by scandir() to select files. */
 static int semanage_filename_select(const struct dirent *d)
 {
@@ -766,7 +772,21 @@ out:
 	return retval;
 }
 
-static int semanage_copy_dir_flags(const char *src, const char *dst, int flag);
+static int semanage_rename(semanage_handle_t * sh, const char *src, const char *dst) {
+	int retval;
+
+	retval = rename(src, dst);
+	if (retval == 0 || errno != EXDEV)
+		return retval;
+
+	/* we can't use rename() due to filesystem limitation, lets try to copy files manually */
+	WARN(sh, "WARNING: rename(%s, %s) failed: %s, fall back to non-atomic semanage_copy_dir_flags()",
+		 src, dst, strerror(errno));
+	if (semanage_copy_dir_flags(src, dst, 1) == -1) {
+		return -1;
+	}
+	return semanage_remove_directory(src);
+}
 
 /* Copies all of the files from src to dst, recursing into
  * subdirectories.  Returns 0 on success, -1 on error. */
@@ -1307,7 +1327,7 @@ static char **split_args(const char *arg0, char *arg_string,
 		goto cleanup;
 	s = arg_string;
 	/* parse the argument string one character at a time,
-	 * repsecting quotes and other special characters */
+	 * respecting quotes and other special characters */
 	while (s != NULL && *s != '\0') {
 		switch (*s) {
 		case '\\':{
@@ -1768,7 +1788,7 @@ static int semanage_commit_sandbox(semanage_handle_t * sh)
 		goto cleanup;
 	}
 
-	if (rename(active, backup) == -1) {
+	if (semanage_rename(sh, active, backup) == -1) {
 		ERR(sh, "Error while renaming %s to %s.", active, backup);
 		retval = -1;
 		goto cleanup;
@@ -1777,12 +1797,12 @@ static int semanage_commit_sandbox(semanage_handle_t * sh)
 	/* clean up some files from the sandbox before install */
 	/* remove homedir_template from sandbox */
 
-	if (rename(sandbox, active) == -1) {
+	if (semanage_rename(sh, sandbox, active) == -1) {
 		ERR(sh, "Error while renaming %s to %s.", sandbox, active);
 		/* note that if an error occurs during the next
 		 * function then the store will be left in an
 		 * inconsistent state */
-		if (rename(backup, active) < 0)
+		if (semanage_rename(sh, backup, active) < 0)
 			ERR(sh, "Error while renaming %s back to %s.", backup,
 			    active);
 		retval = -1;
@@ -1793,10 +1813,10 @@ static int semanage_commit_sandbox(semanage_handle_t * sh)
 		 * function then the store will be left in an
 		 * inconsistent state */
 		int errsv = errno;
-		if (rename(active, sandbox) < 0)
+		if (semanage_rename(sh, active, sandbox) < 0)
 			ERR(sh, "Error while renaming %s back to %s.", active,
 			    sandbox);
-		else if (rename(backup, active) < 0)
+		else if (semanage_rename(sh, backup, active) < 0)
 			ERR(sh, "Error while renaming %s back to %s.", backup,
 			    active);
 		else
@@ -2054,60 +2074,27 @@ int semanage_direct_get_serial(semanage_handle_t * sh)
 
 int semanage_load_files(semanage_handle_t * sh, cil_db_t *cildb, char **filenames, int numfiles)
 {
-	int retval = 0;
-	FILE *fp;
-	ssize_t size;
-	char *data = NULL;
+	int i, retval = 0;
 	char *filename;
-	int i;
+	struct file_contents contents = {};
 
 	for (i = 0; i < numfiles; i++) {
 		filename = filenames[i];
 
-		if ((fp = fopen(filename, "rb")) == NULL) {
-			ERR(sh, "Could not open module file %s for reading.", filename);
-			goto cleanup;
-		}
+		retval = map_compressed_file(sh, filename, &contents);
+		if (retval < 0)
+			return -1;
 
-		if ((size = bunzip(sh, fp, &data)) <= 0) {
-			rewind(fp);
-			__fsetlocking(fp, FSETLOCKING_BYCALLER);
+		retval = cil_add_file(cildb, filename, contents.data, contents.len);
+		unmap_compressed_file(&contents);
 
-			if (fseek(fp, 0, SEEK_END) != 0) {
-				ERR(sh, "Failed to determine size of file %s.", filename);
-				goto cleanup;
-			}
-			size = ftell(fp);
-			rewind(fp);
-
-			data = malloc(size);
-			if (fread(data, size, 1, fp) != 1) {
-				ERR(sh, "Failed to read file %s.", filename);
-				goto cleanup;
-			}
-		}
-
-		fclose(fp);
-		fp = NULL;
-
-		retval = cil_add_file(cildb, filename, data, size);
 		if (retval != SEPOL_OK) {
 			ERR(sh, "Error while reading from file %s.", filename);
-			goto cleanup;
+			return -1;
 		}
-	
-		free(data);
-		data = NULL;
 	}
 
-	return retval;
-
-      cleanup:
-	if (fp != NULL) {
-		fclose(fp);
-	}
-	free(data);
-	return -1;
+	return 0;
 }
 
 /* 
@@ -2413,7 +2400,7 @@ static semanage_file_context_node_t
 
 /* Sorts file contexts from least specific to most specific.
  * A bucket linked list is passed in.  Upon completion,
- * there is only one bucket (pointed to by master) that 
+ * there is only one bucket (pointed to by "main") that
  * contains a linked list of all the file contexts in sorted order.
  * Explanation of the algorithm:
  *  This is a stable implementation of an iterative merge sort.
@@ -2424,15 +2411,15 @@ static semanage_file_context_node_t
  *  Buckets are merged until there is only one bucket left, 
  *   containing the list of file contexts, sorted.
  */
-static void semanage_fc_merge_sort(semanage_file_context_bucket_t * master)
+static void semanage_fc_merge_sort(semanage_file_context_bucket_t * main)
 {
 	semanage_file_context_bucket_t *current;
 	semanage_file_context_bucket_t *temp;
 
-	/* Loop until master is the only bucket left.
-	 * When we stop master contains the sorted list. */
-	while (master->next) {
-		current = master;
+	/* Loop until "main" is the only bucket left.
+	 * When we stop "main" contains the sorted list. */
+	while (main->next) {
+		current = main;
 
 		/* Merge buckets two-by-two. 
 		 * If there is an odd number of buckets, the last 
@@ -2560,7 +2547,7 @@ int semanage_fc_sort(semanage_handle_t * sh, const char *buf, size_t buf_len,
 	semanage_file_context_node_t *temp;
 	semanage_file_context_node_t *head;
 	semanage_file_context_node_t *current;
-	semanage_file_context_bucket_t *master;
+	semanage_file_context_bucket_t *main;
 	semanage_file_context_bucket_t *bcurrent;
 
 	i = 0;
@@ -2759,9 +2746,9 @@ int semanage_fc_sort(semanage_handle_t * sh, const char *buf, size_t buf_len,
 
 	/* Create the bucket linked list from the node linked list. */
 	current = head->next;
-	bcurrent = master = (semanage_file_context_bucket_t *)
+	bcurrent = main = (semanage_file_context_bucket_t *)
 	    calloc(1, sizeof(semanage_file_context_bucket_t));
-	if (!master) {
+	if (!main) {
 		ERR(sh, "Failure allocating memory.");
 		semanage_fc_node_list_destroy(head);
 		return -1;
@@ -2785,7 +2772,7 @@ int semanage_fc_sort(semanage_handle_t * sh, const char *buf, size_t buf_len,
 			    calloc(1, sizeof(semanage_file_context_bucket_t));
 			if (!(bcurrent->next)) {
 				ERR(sh, "Failure allocating memory.");
-				semanage_fc_bucket_list_destroy(master);
+				semanage_fc_bucket_list_destroy(main);
 				return -1;
 			}
 
@@ -2794,14 +2781,14 @@ int semanage_fc_sort(semanage_handle_t * sh, const char *buf, size_t buf_len,
 	}
 
 	/* Sort the bucket list. */
-	semanage_fc_merge_sort(master);
+	semanage_fc_merge_sort(main);
 
 	/* First, calculate how much space we'll need for 
 	 * the newly sorted block of data.  (We don't just
 	 * use buf_len for this because we have extracted
 	 * comments and whitespace.) */
 	i = 0;
-	current = master->data;
+	current = main->data;
 	while (current) {
 		i += current->path_len + 1;	/* +1 for a tab */
 		if (current->file_type) {
@@ -2816,14 +2803,14 @@ int semanage_fc_sort(semanage_handle_t * sh, const char *buf, size_t buf_len,
 	*sorted_buf = calloc(i, sizeof(char));
 	if (!*sorted_buf) {
 		ERR(sh, "Failure allocating memory.");
-		semanage_fc_bucket_list_destroy(master);
+		semanage_fc_bucket_list_destroy(main);
 		return -1;
 	}
 	*sorted_buf_len = i;
 
 	/* Output the sorted semanage_file_context linked list to the char buffer. */
 	sorted_buf_pos = *sorted_buf;
-	current = master->data;
+	current = main->data;
 	while (current) {
 		/* Output the path. */
 		i = current->path_len + 1;	/* +1 for tab */
@@ -2847,7 +2834,7 @@ int semanage_fc_sort(semanage_handle_t * sh, const char *buf, size_t buf_len,
 	}
 
 	/* Clean up. */
-	semanage_fc_bucket_list_destroy(master);
+	semanage_fc_bucket_list_destroy(main);
 
 	/* Sanity check. */
 	sorted_buf_pos++;

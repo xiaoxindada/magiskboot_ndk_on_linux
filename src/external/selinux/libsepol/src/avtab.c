@@ -331,7 +331,7 @@ void avtab_destroy(avtab_t * h)
 	h->mask = 0;
 }
 
-int avtab_map(avtab_t * h,
+int avtab_map(const avtab_t * h,
 	      int (*apply) (avtab_key_t * k,
 			    avtab_datum_t * d, void *args), void *args)
 {
@@ -444,8 +444,6 @@ int avtab_read_item(struct policy_file *fp, uint32_t vers, avtab_t * a,
 	avtab_key_t key;
 	avtab_datum_t datum;
 	avtab_extended_perms_t xperms;
-	unsigned int optype = 0;
-	unsigned set;
 	unsigned int i;
 	int rc;
 
@@ -507,6 +505,11 @@ int avtab_read_item(struct policy_file *fp, uint32_t vers, avtab_t * a,
 
 		for (i = 0; i < ARRAY_SIZE(spec_order); i++) {
 			if (val & spec_order[i]) {
+				if (items >= items2) { /* items is index, items2 is total number */
+					ERR(fp->handle, "entry has too many items (%d/%d)",
+					    items + 1, items2);
+					return -1;
+				}
 				key.specified = spec_order[i] | enabled;
 				datum.data = le32_to_cpu(buf32[items++]);
 				rc = insertf(a, &key, &datum, p);
@@ -534,18 +537,7 @@ int avtab_read_item(struct policy_file *fp, uint32_t vers, avtab_t * a,
 	key.target_class = le16_to_cpu(buf16[items++]);
 	key.specified = le16_to_cpu(buf16[items++]);
 
-	if ((vers == POLICYDB_VERSION_XPERMS_IOCTL) && (key.specified & AVTAB_OPTYPE)) {
-		key.specified = avtab_optype_to_xperms(key.specified);
-		optype = 1;
-		avtab_android_m_compat = 1;
-	}
-
-	set = 0;
-	for (i = 0; i < ARRAY_SIZE(spec_order); i++) {
-		if (key.specified & spec_order[i])
-			set++;
-	}
-	if (!set || set > 1) {
+	if (__builtin_popcount(key.specified) != 1) {
 		ERR(fp->handle, "more than one specifier");
 		return -1;
 	}
@@ -553,8 +545,12 @@ int avtab_read_item(struct policy_file *fp, uint32_t vers, avtab_t * a,
 	if ((vers < POLICYDB_VERSION_XPERMS_IOCTL) &&
 			(key.specified & AVTAB_XPERMS)) {
 		ERR(fp->handle, "policy version %u does not support extended "
-				"permissions rules and one was specified\n", vers);
+				"permissions rules and one was specified", vers);
 		return -1;
+	} else if (vers == POLICYDB_VERSION_XPERMS_IOCTL && key.specified & AVTAB_OPTYPE) {
+		key.specified = avtab_optype_to_xperms(key.specified);
+		xperms.specified = AVTAB_XPERMS_IOCTLDRIVER;
+		avtab_android_m_compat = 1;
 	} else if (key.specified & AVTAB_XPERMS) {
 		rc = next_entry(&buf8, fp, sizeof(uint8_t));
 		if (rc < 0) {
@@ -562,9 +558,10 @@ int avtab_read_item(struct policy_file *fp, uint32_t vers, avtab_t * a,
 			return -1;
 		}
 		if (avtab_android_m_compat ||
-				((buf8 != AVTAB_XPERMS_IOCTLFUNCTION) && (buf8 != AVTAB_XPERMS_IOCTLDRIVER)
-				 && (vers == POLICYDB_VERSION_XPERMS_IOCTL))) {
-			xperms.specified = (optype ? AVTAB_XPERMS_IOCTLDRIVER : AVTAB_XPERMS_IOCTLFUNCTION);
+			(vers == POLICYDB_VERSION_XPERMS_IOCTL &&
+			buf8 != AVTAB_XPERMS_IOCTLFUNCTION &&
+			buf8 != AVTAB_XPERMS_IOCTLDRIVER)) {
+			xperms.specified = AVTAB_XPERMS_IOCTLFUNCTION;
 			avtab_android_m_compat = 1;
 		} else {
 			xperms.specified = buf8;

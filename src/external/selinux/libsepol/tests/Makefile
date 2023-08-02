@@ -1,8 +1,24 @@
-M4 ?= m4
+ENV ?= env
+M4 ?= m4 -E -E
 MKDIR ?= mkdir
 EXE ?= libsepol-tests
 
-CFLAGS += -g3 -gdwarf-2 -O0 -Wall -W -Wundef -Wmissing-noreturn -Wmissing-format-attribute -Wno-unused-parameter -Werror
+CFLAGS += -g3 -gdwarf-2 -O0 \
+	-Werror -Wall -Wextra \
+	-Wfloat-equal \
+	-Wformat=2 \
+	-Winit-self \
+	-Wmissing-format-attribute \
+	-Wmissing-noreturn \
+	-Wmissing-prototypes \
+	-Wnull-dereference \
+	-Wpointer-arith \
+	-Wshadow \
+	-Wstrict-prototypes \
+	-Wundef \
+	-Wunused \
+	-Wwrite-strings \
+	-fno-common
 
 # Statically link libsepol on the assumption that we are going to
 # be testing internal functions.
@@ -44,10 +60,15 @@ clean:
 	rm -f $(objs) $(EXE)
 	rm -f $(policies)
 	rm -f policies/test-downgrade/policy.hi policies/test-downgrade/policy.lo
-	
 
+# mkdir is run in a clean environment created by env -i to avoid failing under ASan with:
+#
+#   ASan runtime does not come first in initial library list;
+#   you should either link runtime to your application or manually preload it with LD_PRELOAD
+#
+# when the source code is built with ASan
 test: $(EXE) $(policies)
-	$(MKDIR) -p policies/test-downgrade
+	$(ENV) -i $(MKDIR) -p policies/test-downgrade
 	../../checkpolicy/checkpolicy -M policies/test-cond/refpolicy-base.conf -o policies/test-downgrade/policy.hi	
 	./$(EXE)
 

@@ -7,13 +7,18 @@ SELinux Userspace
 [![OSS-Fuzz Status](https://oss-fuzz-build-logs.storage.googleapis.com/badges/selinux.svg)](https://oss-fuzz-build-logs.storage.googleapis.com/index.html#selinux)
 [![CIFuzz Status](https://github.com/SELinuxProject/selinux/actions/workflows/cifuzz.yml/badge.svg)](https://github.com/SELinuxProject/selinux/actions/workflows/cifuzz.yml)
 
-Please submit all bug reports and patches to <selinux@vger.kernel.org>.
+SELinux is a flexible Mandatory Access Control (MAC) system built into the
+Linux Kernel. SELinux provides administrators with a comprehensive access
+control mechanism that enables greater access granularity over the existing
+Linux Discretionary Access Controls (DAC) and is present in many major Linux
+distributions. This repository contains the sources for the SELinux utilities
+and system libraries which allow for the configuration and management of an
+SELinux-based system.
 
-Subscribe by sending "subscribe selinux" in the body of an email
-to <majordomo@vger.kernel.org>.
-
-Archive of this mailing list is available on https://lore.kernel.org/selinux/.
-
+Please submit all bug reports and patches to the <selinux@vger.kernel.org>
+mailing list. You can subscribe by sending "subscribe selinux" in the body of
+an email to <majordomo@vger.kernel.org>. Archives of the mailing list are
+available at https://lore.kernel.org/selinux.
 
 Installation
 ------------
@@ -51,12 +56,15 @@ dnf install \
     libcap-devel \
     libcap-ng-devel \
     pam-devel \
-    pcre-devel \
+    pcre2-devel \
     xmlto
 
 # For Python and Ruby bindings
 dnf install \
     python3-devel \
+    python3-pip \
+    python3-setuptools \
+    python3-wheel \
     ruby-devel \
     swig
 ```
@@ -78,16 +86,18 @@ apt-get install --no-install-recommends --no-install-suggests \
     libcap-ng-dev \
     libcunit1-dev \
     libglib2.0-dev \
-    libpcre3-dev \
+    libpcre2-dev \
     pkgconf \
     python3 \
-    python3-distutils \
     systemd \
     xmlto
 
 # For Python and Ruby bindings
 apt-get install --no-install-recommends --no-install-suggests \
     python3-dev \
+    python3-pip \
+    python3-setuptools \
+    python3-wheel \
     ruby-dev \
     swig
 ```
@@ -98,7 +108,7 @@ To build and install everything under a private directory, run:
 
     make DESTDIR=~/obj install install-rubywrap install-pywrap
 
-On Debian `PYTHON_SETUP_ARGS=--install-layout=deb` needs to be set when installing the python wrappers in order to create the correct python directory structure.
+On Debian `PYTHON_SETUP_ARGS='--install-option "--install-layout=deb"'` needs to be set when installing the python wrappers in order to create the correct python directory structure.
 
 To run tests with the built libraries and programs, several paths (relative to `$DESTDIR`) need to be added to variables `$LD_LIBRARY_PATH`, `$PATH` and `$PYTHONPATH`.
 This can be done using [./scripts/env_use_destdir](./scripts/env_use_destdir):

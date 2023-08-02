@@ -166,7 +166,7 @@ static int type_copy_callback(hashtab_key_t key, hashtab_datum_t datum,
 
 	if (new_type->flags & TYPE_FLAGS_PERMISSIVE)
 		if (ebitmap_set_bit(&state->out->permissive_map, new_type->s.value, 1)) {
-			ERR(state->handle, "Out of memory!\n");
+			ERR(state->handle, "Out of memory!");
 			return -1;
 		}
 
@@ -929,11 +929,15 @@ int mls_semantic_level_expand(mls_semantic_level_t * sl, mls_level_t * l,
 	if (!sl->sens)
 		return 0;
 
+	/* Invalid sensitivity */
+	if (sl->sens > p->p_levels.nprim || !p->p_sens_val_to_name[sl->sens - 1])
+		return -1;
+
 	l->sens = sl->sens;
 	levdatum = (level_datum_t *) hashtab_search(p->p_levels.table,
 						    p->p_sens_val_to_name[l->sens - 1]);
 	if (!levdatum) {
-		ERR(h, "%s: Impossible situation found, nothing in p_levels.table.\n",
+		ERR(h, "%s: Impossible situation found, nothing in p_levels.table.",
 		    __func__);
 		errno = ENOENT;
 		return -1;
@@ -1403,6 +1407,40 @@ static int copy_role_trans(expand_state_t * state, role_trans_rule_t * rules)
 	return 0;
 }
 
+static int expand_filename_trans_helper(expand_state_t *state,
+					filename_trans_rule_t *rule,
+					unsigned int s, unsigned int t)
+{
+	uint32_t mapped_otype, present_otype;
+	int rc;
+
+	mapped_otype = state->typemap[rule->otype - 1];
+
+	rc = policydb_filetrans_insert(
+		state->out, s + 1, t + 1,
+		rule->tclass, rule->name,
+		NULL, mapped_otype, &present_otype
+	);
+	if (rc == SEPOL_EEXIST) {
+		/* duplicate rule, ignore */
+		if (present_otype == mapped_otype)
+			return 0;
+
+		ERR(state->handle, "Conflicting name-based type_transition %s %s:%s \"%s\":  %s vs %s",
+		    state->out->p_type_val_to_name[s],
+		    state->out->p_type_val_to_name[t],
+		    state->out->p_class_val_to_name[rule->tclass - 1],
+		    rule->name,
+		    state->out->p_type_val_to_name[present_otype - 1],
+		    state->out->p_type_val_to_name[mapped_otype - 1]);
+		return -1;
+	} else if (rc < 0) {
+		ERR(state->handle, "Out of memory!");
+		return -1;
+	}
+	return 0;
+}
+
 static int expand_filename_trans(expand_state_t *state, filename_trans_rule_t *rules)
 {
 	unsigned int i, j;
@@ -1413,8 +1451,6 @@ static int expand_filename_trans(expand_state_t *state, filename_trans_rule_t *r
 
 	cur_rule = rules;
 	while (cur_rule) {
-		uint32_t mapped_otype, present_otype;
-
 		ebitmap_init(&stypes);
 		ebitmap_init(&ttypes);
 
@@ -1430,32 +1466,21 @@ static int expand_filename_trans(expand_state_t *state, filename_trans_rule_t *r
 			return -1;
 		}
 
-		mapped_otype = state->typemap[cur_rule->otype - 1];
 
 		ebitmap_for_each_positive_bit(&stypes, snode, i) {
 			ebitmap_for_each_positive_bit(&ttypes, tnode, j) {
-				rc = policydb_filetrans_insert(
-					state->out, i + 1, j + 1,
-					cur_rule->tclass, cur_rule->name,
-					NULL, mapped_otype, &present_otype
+				rc = expand_filename_trans_helper(
+					state, cur_rule, i, j
 				);
-				if (rc == SEPOL_EEXIST) {
-					/* duplicate rule, ignore */
-					if (present_otype == mapped_otype)
-						continue;
-
-					ERR(state->handle, "Conflicting name-based type_transition %s %s:%s \"%s\":  %s vs %s",
-					    state->out->p_type_val_to_name[i],
-					    state->out->p_type_val_to_name[j],
-					    state->out->p_class_val_to_name[cur_rule->tclass - 1],
-					    cur_rule->name,
-					    state->out->p_type_val_to_name[present_otype - 1],
-					    state->out->p_type_val_to_name[mapped_otype - 1]);
-					return -1;
-				} else if (rc < 0) {
-					ERR(state->handle, "Out of memory!");
-					return -1;
-				}
+				if (rc)
+					return rc;
+			}
+			if (cur_rule->flags & RULE_SELF) {
+				rc = expand_filename_trans_helper(
+					state, cur_rule, i, i
+				);
+				if (rc)
+					return rc;
 			}
 		}
 
@@ -1690,7 +1715,7 @@ static int expand_terule_helper(sepol_handle_t * handle,
 	uint32_t oldtype = 0;
 
 	if (!(specified & (AVRULE_TRANSITION|AVRULE_MEMBER|AVRULE_CHANGE))) {
-		ERR(handle, "Invalid specification: %"PRIu32"\n", specified);
+		ERR(handle, "Invalid specification: %"PRIu32, specified);
 		return EXPAND_RULE_ERROR;
 	}
 
@@ -1869,7 +1894,7 @@ static int expand_avrule_helper(sepol_handle_t * handle,
 				return EXPAND_RULE_ERROR;
 			break;
 		default:
-			ERR(handle, "Unknown specification: %"PRIu32"\n", specified);
+			ERR(handle, "Unknown specification: %"PRIu32, specified);
 			return EXPAND_RULE_ERROR;
 		}
 
@@ -2477,7 +2502,7 @@ int role_set_expand(role_set_t * x, ebitmap_t * r, policydb_t * out, policydb_t 
 
 	/* if role is to be complimented, invert the entire bitmap here */
 	if (x->flags & ROLE_COMP) {
-		for (i = 0; i < ebitmap_length(r); i++) {
+		for (i = 0; i < p->p_roles.nprim; i++) {
 			if (ebitmap_get_bit(r, i)) {
 				if (ebitmap_set_bit(r, i, 0))
 					return -1;
@@ -2966,6 +2991,9 @@ int expand_module(sepol_handle_t * handle,
 
 	state.out->policy_type = POLICY_KERN;
 	state.out->policyvers = POLICYDB_VERSION_MAX;
+	if (state.base->name) {
+		state.out->name = strdup(state.base->name);
+	}
 
 	/* Copy mls state from base to out */
 	out->mls = base->mls;
@@ -3146,17 +3174,15 @@ int expand_module(sepol_handle_t * handle,
 		goto cleanup;
 
 	/* Build the type<->attribute maps and remove attributes. */
-	state.out->attr_type_map = malloc(state.out->p_types.nprim *
+	state.out->attr_type_map = calloc(state.out->p_types.nprim,
 					  sizeof(ebitmap_t));
-	state.out->type_attr_map = malloc(state.out->p_types.nprim *
+	state.out->type_attr_map = calloc(state.out->p_types.nprim,
 					  sizeof(ebitmap_t));
 	if (!state.out->attr_type_map || !state.out->type_attr_map) {
 		ERR(handle, "Out of memory!");
 		goto cleanup;
 	}
 	for (i = 0; i < state.out->p_types.nprim; i++) {
-		ebitmap_init(&state.out->type_attr_map[i]);
-		ebitmap_init(&state.out->attr_type_map[i]);
 		/* add the type itself as the degenerate case */
 		if (ebitmap_set_bit(&state.out->type_attr_map[i], i, 1)) {
 			ERR(handle, "Out of memory!");

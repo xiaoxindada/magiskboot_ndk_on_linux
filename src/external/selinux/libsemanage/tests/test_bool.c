@@ -31,29 +31,29 @@
 #define BOOL_NONEXISTENT "asdf"
 
 /* boolean_record.h */
-void test_bool_key_create(void);
-void test_bool_key_extract(void);
-void test_bool_compare(void);
-void test_bool_compare2(void);
-void test_bool_get_set_name(void);
-void test_bool_get_set_value(void);
-void test_bool_create(void);
-void test_bool_clone(void);
+static void test_bool_key_create(void);
+static void test_bool_key_extract(void);
+static void test_bool_compare(void);
+static void test_bool_compare2(void);
+static void test_bool_get_set_name(void);
+static void test_bool_get_set_value(void);
+static void test_bool_create(void);
+static void test_bool_clone(void);
 
 /* booleans_policy.h */
-void test_bool_query(void);
-void test_bool_exists(void);
-void test_bool_count(void);
-void test_bool_iterate(void);
-void test_bool_list(void);
+static void test_bool_query(void);
+static void test_bool_exists(void);
+static void test_bool_count(void);
+static void test_bool_iterate(void);
+static void test_bool_list(void);
 
 /* booleans_local.h */
-void test_bool_modify_del_local(void);
-void test_bool_query_local(void);
-void test_bool_exists_local(void);
-void test_bool_count_local(void);
-void test_bool_iterate_local(void);
-void test_bool_list_local(void);
+static void test_bool_modify_del_local(void);
+static void test_bool_query_local(void);
+static void test_bool_exists_local(void);
+static void test_bool_count_local(void);
+static void test_bool_iterate_local(void);
+static void test_bool_list_local(void);
 
 extern semanage_handle_t *sh;
 
@@ -111,7 +111,7 @@ int bool_add_tests(CU_pSuite suite)
 
 /* Helpers */
 
-semanage_bool_t *get_bool_nth(int idx)
+static semanage_bool_t *get_bool_nth(int idx)
 {
 	int res;
 	semanage_bool_t **records;
@@ -132,10 +132,12 @@ semanage_bool_t *get_bool_nth(int idx)
 		if (i != (unsigned int) idx)
 			semanage_bool_free(records[i]);
 
+	free(records);
+
 	return boolean;
 }
 
-semanage_bool_t *get_bool_new(void)
+static semanage_bool_t *get_bool_new(void)
 {
 	int res;
 	semanage_bool_t *boolean;
@@ -147,7 +149,7 @@ semanage_bool_t *get_bool_new(void)
 	return boolean;
 }
 
-semanage_bool_key_t *get_bool_key_nth(int idx)
+static semanage_bool_key_t *get_bool_key_nth(int idx)
 {
 	semanage_bool_key_t *key;
 	semanage_bool_t *boolean;
@@ -163,10 +165,12 @@ semanage_bool_key_t *get_bool_key_nth(int idx)
 	CU_ASSERT_FATAL(res >= 0);
 	CU_ASSERT_PTR_NOT_NULL_FATAL(key);
 
+	semanage_bool_free(boolean);
+
 	return key;
 }
 
-semanage_bool_key_t *get_bool_key_from_str(const char *str)
+static semanage_bool_key_t *get_bool_key_from_str(const char *str)
 {
 	semanage_bool_key_t *key;
 	int res;
@@ -182,7 +186,7 @@ semanage_bool_key_t *get_bool_key_from_str(const char *str)
 	return key;
 }
 
-void add_local_bool(const char *name)
+static void add_local_bool(const char *name)
 {
 	semanage_bool_t *boolean;
 	semanage_bool_key_t *key = NULL;
@@ -196,9 +200,12 @@ void add_local_bool(const char *name)
 	CU_ASSERT_PTR_NOT_NULL_FATAL(boolean);
 
 	CU_ASSERT_FATAL(semanage_bool_modify_local(sh, key, boolean) >= 0);
+
+	semanage_bool_key_free(key);
+	semanage_bool_free(boolean);
 }
 
-void delete_local_bool(const char *name)
+static void delete_local_bool(const char *name)
 {
 	semanage_bool_key_t *key = NULL;
 
@@ -208,11 +215,13 @@ void delete_local_bool(const char *name)
 	CU_ASSERT_PTR_NOT_NULL_FATAL(key);
 
 	CU_ASSERT_FATAL(semanage_bool_del_local(sh, key) >= 0);
+
+	semanage_bool_key_free(key);
 }
 
 /* Function bool_key_create */
 
-void helper_bool_key_create(level_t level)
+static void helper_bool_key_create(level_t level)
 {
 	semanage_bool_key_t *key = NULL;
 
@@ -244,7 +253,7 @@ void test_bool_key_create(void)
 #define SK_NEW 2
 #define SK_INDEX 3
 #define SK_KEY_NULL 4
-void helper_bool_key_extract(level_t level, int mode)
+static void helper_bool_key_extract(level_t level, int mode)
 {
 	semanage_bool_t *boolean = NULL;
 	semanage_bool_key_t *key = NULL;
@@ -297,7 +306,7 @@ void test_bool_key_extract(void)
 #undef SK_KEY_NULL
 
 /* Function bool_compare */
-void helper_bool_compare(level_t level, int bool_idx1, int bool_idx2)
+static void helper_bool_compare(level_t level, int bool_idx1, int bool_idx2)
 {
 	semanage_bool_t *boolean;
 	semanage_bool_key_t *key;
@@ -321,7 +330,7 @@ void helper_bool_compare(level_t level, int bool_idx1, int bool_idx2)
 	cleanup_handle(level);
 }
 
-void test_bool_compare(void)
+static void test_bool_compare(void)
 {
 	helper_bool_compare(SH_CONNECT, I_FIRST,  I_FIRST);
 	helper_bool_compare(SH_CONNECT, I_FIRST,  I_SECOND);
@@ -335,7 +344,7 @@ void test_bool_compare(void)
 }
 
 /* Function bool_compare2 */
-void helper_bool_compare2(level_t level, int bool_idx1, int bool_idx2)
+static void helper_bool_compare2(level_t level, int bool_idx1, int bool_idx2)
 {
 	semanage_bool_t *bool1;
 	semanage_bool_t *bool2;
@@ -359,7 +368,7 @@ void helper_bool_compare2(level_t level, int bool_idx1, int bool_idx2)
 	cleanup_handle(level);
 }
 
-void test_bool_compare2(void)
+static void test_bool_compare2(void)
 {
 	helper_bool_compare2(SH_CONNECT, I_FIRST,  I_FIRST);
 	helper_bool_compare2(SH_CONNECT, I_FIRST,  I_SECOND);
@@ -373,7 +382,7 @@ void test_bool_compare2(void)
 }
 
 /* Function bool_get_name, bool_set_name */
-void helper_bool_get_set_name(level_t level, int bool_idx, const char *name)
+static void helper_bool_get_set_name(level_t level, int bool_idx, const char *name)
 {
 	semanage_bool_t *boolean;
 	const char *new_name = NULL;
@@ -395,7 +404,7 @@ void helper_bool_get_set_name(level_t level, int bool_idx, const char *name)
 	cleanup_handle(level);
 }
 
-void test_bool_get_set_name(void)
+static void test_bool_get_set_name(void)
 {
 	helper_bool_get_set_name(SH_CONNECT, I_FIRST, "testbool");
 	helper_bool_get_set_name(SH_CONNECT, I_FIRST, "");
@@ -409,7 +418,7 @@ void test_bool_get_set_name(void)
 }
 
 /* Function bool_get_value, bool_set_value */
-void helper_bool_get_set_value(int bool_idx, int val)
+static void helper_bool_get_set_value(int bool_idx, int val)
 {
 	semanage_bool_t *boolean;
 	int new_val = 0;
@@ -427,7 +436,7 @@ void helper_bool_get_set_value(int bool_idx, int val)
 	semanage_bool_free(boolean);
 }
 
-void test_bool_get_set_value(void)
+static void test_bool_get_set_value(void)
 {
 	helper_bool_get_set_value(I_FIRST, 1);
 	helper_bool_get_set_value(I_FIRST, 0);
@@ -436,7 +445,7 @@ void test_bool_get_set_value(void)
 }
 
 /* Function bool_create */
-void helper_bool_create(level_t level)
+static void helper_bool_create(level_t level)
 {
 	semanage_bool_t *boolean;
 
@@ -447,10 +456,12 @@ void helper_bool_create(level_t level)
 	CU_ASSERT_PTR_NULL(semanage_bool_get_name(boolean));
 	CU_ASSERT(semanage_bool_get_value(boolean) == 0);
 
+	semanage_bool_free(boolean);
+
 	cleanup_handle(level);
 }
 
-void test_bool_create(void)
+static void test_bool_create(void)
 {
 	helper_bool_create(SH_HANDLE);
 	helper_bool_create(SH_CONNECT);
@@ -458,7 +469,7 @@ void test_bool_create(void)
 }
 
 /* Function bool_clone */
-void helper_bool_clone(level_t level, int bool_idx)
+static void helper_bool_clone(level_t level, int bool_idx)
 {
 	semanage_bool_t *boolean;
 	semanage_bool_t *boolean_clone;
@@ -483,10 +494,13 @@ void helper_bool_clone(level_t level, int bool_idx)
 
 	CU_ASSERT_EQUAL(val, val_clone);
 
+	semanage_bool_free(boolean_clone);
+	semanage_bool_free(boolean);
+
 	cleanup_handle(level);
 }
 
-void test_bool_clone(void)
+static void test_bool_clone(void)
 {
 	helper_bool_clone(SH_CONNECT, I_FIRST);
 	helper_bool_clone(SH_CONNECT, I_SECOND);
@@ -496,7 +510,7 @@ void test_bool_clone(void)
 }
 
 /* Function bool_query */
-void helper_bool_query(level_t level, const char *bool_str, int exp_res)
+static void helper_bool_query(level_t level, const char *bool_str, int exp_res)
 {
 	semanage_bool_key_t *key;
 	semanage_bool_t *resp = (void *) 42;
@@ -514,10 +528,13 @@ void helper_bool_query(level_t level, const char *bool_str, int exp_res)
 		CU_ASSERT_PTR_NULL(resp);
 	}
 
+	semanage_bool_free(resp);
+	semanage_bool_key_free(key);
+
 	cleanup_handle(level);
 }
 
-void test_bool_query(void)
+static void test_bool_query(void)
 {
 	helper_bool_query(SH_CONNECT, BOOL1_NAME,  1);
 	helper_bool_query(SH_CONNECT, BOOL2_NAME, 1);
@@ -529,7 +546,7 @@ void test_bool_query(void)
 }
 
 /* Function bool_exists */
-void helper_bool_exists(level_t level, const char *bool_str, int exp_resp)
+static void helper_bool_exists(level_t level, const char *bool_str, int exp_resp)
 {
 	semanage_bool_key_t *key;
 	int resp;
@@ -546,7 +563,7 @@ void helper_bool_exists(level_t level, const char *bool_str, int exp_resp)
 	cleanup_handle(level);
 }
 
-void test_bool_exists(void)
+static void test_bool_exists(void)
 {
 	helper_bool_exists(SH_CONNECT, BOOL1_NAME,  1);
 	helper_bool_exists(SH_CONNECT, BOOL2_NAME, 1);
@@ -558,7 +575,7 @@ void test_bool_exists(void)
 }
 
 /* Function bool_count */
-void test_bool_count(void)
+static void test_bool_count(void)
 {
 	unsigned int resp;
 
@@ -586,13 +603,13 @@ void test_bool_count(void)
 /* Function bool_iterate */
 unsigned int counter_bool_iterate = 0;
 
-int handler_bool_iterate(const semanage_bool_t *record, void *varg)
+static int handler_bool_iterate(const semanage_bool_t *record, void *varg)
 {
 	counter_bool_iterate++;
 	return 0;
 }
 
-void helper_bool_iterate_invalid(void)
+static void helper_bool_iterate_invalid(void)
 {
 	setup_handle(SH_HANDLE);
 	CU_ASSERT(semanage_bool_iterate(sh, &handler_bool_iterate, NULL) < 0);
@@ -600,7 +617,7 @@ void helper_bool_iterate_invalid(void)
 	cleanup_handle(SH_HANDLE);
 }
 
-void helper_bool_iterate(level_t level)
+static void helper_bool_iterate(level_t level)
 {
 	setup_handle(level);
 	counter_bool_iterate = 0;
@@ -609,7 +626,7 @@ void helper_bool_iterate(level_t level)
 	cleanup_handle(level);
 }
 
-void test_bool_iterate(void)
+static void test_bool_iterate(void)
 {
 	helper_bool_iterate_invalid();
 	helper_bool_iterate(SH_CONNECT);
@@ -617,7 +634,7 @@ void test_bool_iterate(void)
 }
 
 /* Function bool_list */
-void helper_bool_list_invalid(void)
+static void helper_bool_list_invalid(void)
 {
 	semanage_bool_t **records;
 	unsigned int count;
@@ -631,7 +648,7 @@ void helper_bool_list_invalid(void)
 	cleanup_handle(SH_HANDLE);
 }
 
-void helper_bool_list(level_t level)
+static void helper_bool_list(level_t level)
 {
 	semanage_bool_t **records;
 	unsigned int count;
@@ -647,10 +664,12 @@ void helper_bool_list(level_t level)
 	for (unsigned int i = 0; i < count; i++)
 		semanage_bool_free(records[i]);
 
+	free(records);
+
 	cleanup_handle(level);
 }
 
-void test_bool_list(void)
+static void test_bool_list(void)
 {
 	helper_bool_list_invalid();
 	helper_bool_list(SH_CONNECT);
@@ -658,11 +677,11 @@ void test_bool_list(void)
 }
 
 /* Function bool_modify_local, bool_del_local */
-void helper_bool_modify_del_local(level_t level, const char *name,
+static void helper_bool_modify_del_local(level_t level, const char *name,
 				  int old_val, int exp_res)
 {
 	semanage_bool_t *boolean;
-	semanage_bool_t *boolean_local;
+	semanage_bool_t *boolean_local = NULL;
 	semanage_bool_key_t *key = NULL;
 	int res;
 	int new_val;
@@ -696,6 +715,8 @@ void helper_bool_modify_del_local(level_t level, const char *name,
 		CU_ASSERT(semanage_bool_query_local(sh, key,
 					            &boolean_local) >= 0);
 		CU_ASSERT(semanage_bool_compare2(boolean_local, boolean) == 0);
+		semanage_bool_free(boolean_local);
+
 		CU_ASSERT(semanage_bool_del_local(sh, key) >= 0);
 		CU_ASSERT(semanage_bool_query_local(sh, key,
 						    &boolean_local) < 0);
@@ -708,7 +729,7 @@ void helper_bool_modify_del_local(level_t level, const char *name,
 	cleanup_handle(level);
 }
 
-void test_bool_modify_del_local(void)
+static void test_bool_modify_del_local(void)
 {
 	helper_bool_modify_del_local(SH_CONNECT, BOOL1_NAME, BOOL1_VALUE, -1);
 	helper_bool_modify_del_local(SH_CONNECT, BOOL2_NAME, BOOL2_VALUE, -1);
@@ -717,7 +738,7 @@ void test_bool_modify_del_local(void)
 }
 
 /* Function bool_query_local */
-void test_bool_query_local(void)
+static void test_bool_query_local(void)
 {
 	semanage_bool_key_t *key = NULL;
 	semanage_bool_t *resp = NULL;
@@ -734,15 +755,18 @@ void test_bool_query_local(void)
 
 	/* transaction */
 	setup_handle(SH_TRANS);
+	semanage_bool_key_free(key);
 	CU_ASSERT(semanage_bool_key_create(sh, BOOL1_NAME, &key) >= 0);
 	CU_ASSERT_PTR_NOT_NULL(key);
 
 	CU_ASSERT(semanage_bool_query_local(sh, key, &resp) < 0);
 	CU_ASSERT_PTR_NULL(resp);
+	semanage_bool_free(resp);
 
 	add_local_bool(BOOL1_NAME);
 	CU_ASSERT(semanage_bool_query_local(sh, key, &resp) >= 0);
 	CU_ASSERT_PTR_NOT_NULL(resp);
+	semanage_bool_free(resp);
 
 	semanage_bool_key_free(key);
 	CU_ASSERT(semanage_bool_key_create(sh, BOOL2_NAME, &key) >= 0);
@@ -751,15 +775,17 @@ void test_bool_query_local(void)
 	add_local_bool(BOOL2_NAME);
 	CU_ASSERT(semanage_bool_query_local(sh, key, &resp) >= 0);
 	CU_ASSERT_PTR_NOT_NULL(resp);
+	semanage_bool_free(resp);
 
 	/* cleanup */
+	semanage_bool_key_free(key);
 	delete_local_bool(BOOL1_NAME);
 	delete_local_bool(BOOL2_NAME);
 	cleanup_handle(SH_TRANS);
 }
 
 /* Function bool_exists_local */
-void test_bool_exists_local(void)
+static void test_bool_exists_local(void)
 {
 	int resp = -1;
 	semanage_bool_key_t *key;
@@ -784,11 +810,12 @@ void test_bool_exists_local(void)
 	CU_ASSERT(resp == 0);
 
 	/* cleanup */
+	semanage_bool_key_free(key);
 	cleanup_handle(SH_TRANS);
 }
 
 /* Function bool_count_local */
-void test_bool_count_local(void)
+static void test_bool_count_local(void)
 {
 	unsigned int resp;
 	unsigned int init_count;
@@ -832,13 +859,13 @@ void test_bool_count_local(void)
 /* Function bool_iterate_local */
 unsigned int counter_bool_iterate_local = 0;
 
-int handler_bool_iterate_local(const semanage_bool_t *record, void *varg)
+static int handler_bool_iterate_local(const semanage_bool_t *record, void *varg)
 {
 	counter_bool_iterate_local++;
 	return 0;
 }
 
-void test_bool_iterate_local(void)
+static void test_bool_iterate_local(void)
 {
 	unsigned int init_count;
 
@@ -885,7 +912,7 @@ void test_bool_iterate_local(void)
 }
 
 /* Function bool_list_local */
-void test_bool_list_local(void)
+static void test_bool_list_local(void)
 {
 	semanage_bool_t **records;
 	unsigned int count;
@@ -918,12 +945,17 @@ void test_bool_list_local(void)
 	CU_ASSERT(semanage_bool_list_local(sh, &records, &count) >= 0);
 	CU_ASSERT(count == init_count + 1);
 	CU_ASSERT_PTR_NOT_NULL(records[0]);
+	semanage_bool_free(records[0]);
+	free(records);
 
 	add_local_bool(BOOL2_NAME);
 	CU_ASSERT(semanage_bool_list_local(sh, &records, &count) >= 0);
 	CU_ASSERT(count == init_count + 2);
 	CU_ASSERT_PTR_NOT_NULL(records[0]);
 	CU_ASSERT_PTR_NOT_NULL(records[1]);
+	semanage_bool_free(records[0]);
+	semanage_bool_free(records[1]);
+	free(records);
 
 	/* cleanup */
 	delete_local_bool(BOOL1_NAME);

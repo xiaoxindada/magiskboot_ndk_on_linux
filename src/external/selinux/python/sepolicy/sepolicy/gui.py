@@ -41,16 +41,17 @@ import os
 import re
 import unicodedata
 
-PROGNAME = "policycoreutils"
+PROGNAME = "selinux-python"
 try:
     import gettext
     kwargs = {}
     if sys.version_info < (3,):
         kwargs['unicode'] = True
-    gettext.install(PROGNAME,
+    t = gettext.translation(PROGNAME,
                     localedir="/usr/share/locale",
-                    codeset='utf-8',
-                    **kwargs)
+                    **kwargs,
+                    fallback=True)
+    _ = t.gettext
 except:
     try:
         import builtins
@@ -76,7 +77,7 @@ def cmp(a, b):
         return 1
     return (a > b) - (a < b)
 
-import distutils.sysconfig
+import sysconfig
 ADVANCED_LABEL = (_("Advanced >>"), _("Advanced <<"))
 ADVANCED_SEARCH_LABEL = (_("Advanced Search >>"), _("Advanced Search <<"))
 OUTBOUND_PAGE = 0
@@ -129,14 +130,13 @@ class SELinuxGui():
         self.application = app
         self.filter_txt = ""
         builder = Gtk.Builder()  # BUILDER OBJ
-        self.code_path = distutils.sysconfig.get_python_lib(plat_specific=False) + "/sepolicy/"
+        self.code_path = sysconfig.get_path('purelib', vars={'base': "/usr"}) + "/sepolicy/"
         glade_file = self.code_path + "sepolicy.glade"
         builder.add_from_file(glade_file)
         self.outer_notebook = builder.get_object("outer_notebook")
         self.window = builder.get_object("SELinux_window")
-        self.main_selection_window = builder.get_object("Main_selection_menu")
+        self.main_selection_popover = builder.get_object("Main_selection_menu")
         self.main_advanced_label = builder.get_object("main_advanced_label")
-        self.popup = 0
         self.applications_selection_button = builder.get_object("applications_selection_button")
         self.revert_button = builder.get_object("Revert_button")
         self.busy_cursor = Gdk.Cursor(Gdk.CursorType.WATCH)
@@ -530,7 +530,6 @@ class SELinuxGui():
         dic = {
             "on_combo_button_clicked": self.open_combo_menu,
             "on_disable_ptrace_toggled": self.on_disable_ptrace,
-            "on_SELinux_window_configure_event": self.hide_combo_menu,
             "on_entrycompletion_obj_match_selected": self.set_application_label,
             "on_filter_changed": self.get_filter_data,
             "on_save_changes_file_equiv_clicked": self.update_to_file_equiv,
@@ -634,7 +633,7 @@ class SELinuxGui():
         for k in self.cur_dict:
             for j in self.cur_dict[k]:
                 if i == ctr:
-                    del(self.cur_dict[k][j])
+                    del self.cur_dict[k][j]
                     return
                 i += 1
 
@@ -807,18 +806,8 @@ class SELinuxGui():
         return self.help_show_page()
 
     def open_combo_menu(self, *args):
-        if self.popup == 0:
-            self.popup = 1
-            location = self.window.get_position()
-            self.main_selection_window.move(location[0] + 2, location[1] + 65)
-            self.main_selection_window.show()
-        else:
-            self.main_selection_window.hide()
-            self.popup = 0
-
-    def hide_combo_menu(self, *args):
-        self.main_selection_window.hide()
-        self.popup = 0
+        self.main_selection_popover.set_relative_to(self.applications_selection_button)
+        self.main_selection_popover.popup()
 
     def set_application_label(self, *args):
         self.set_application_label = True
@@ -859,7 +848,7 @@ class SELinuxGui():
                     if val is True or val is False or val is None:
                         continue
                     # Returns true if filter_txt exists within the val
-                    if(val.find(self.filter_txt) != -1 or val.lower().find(self.filter_txt) != -1):
+                    if val.find(self.filter_txt) != -1 or val.lower().find(self.filter_txt) != -1:
                         return True
                 except (AttributeError, TypeError):
                     pass
@@ -1309,9 +1298,9 @@ class SELinuxGui():
                 filename = i['filename']
             else:
                 filename = None
-            self.transitions_files_inital_data_insert(i['target'], i['class'], i['transtype'], filename)
+            self.transitions_files_initial_data_insert(i['target'], i['class'], i['transtype'], filename)
 
-    def transitions_files_inital_data_insert(self, path, tclass, dest, name):
+    def transitions_files_initial_data_insert(self, path, tclass, dest, name):
         iter = self.transitions_file_liststore.append()
         self.transitions_file_liststore.set_value(iter, 0, path)
         self.transitions_file_liststore.set_value(iter, 1, tclass)
@@ -2173,7 +2162,7 @@ class SELinuxGui():
         model.set_value(iter, 0, not model.get_value(iter, 0))
         active = model.get_value(iter, 0)
         if name in self.cur_dict["boolean"]:
-            del(self.cur_dict["boolean"][name])
+            del self.cur_dict["boolean"][name]
         else:
             self.cur_dict["boolean"][name] = {"active": active}
         self.new_updates()
@@ -2334,7 +2323,7 @@ class SELinuxGui():
             self.active_button = self.network_radio_button
 
     def clearbuttons(self, clear=True):
-        self.main_selection_window.hide()
+        self.main_selection_popover.hide()
         self.boolean_radio_button.set_visible(False)
         self.files_radio_button.set_visible(False)
         self.network_radio_button.set_visible(False)

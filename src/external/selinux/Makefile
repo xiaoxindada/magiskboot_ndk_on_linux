@@ -9,8 +9,13 @@ ifeq ($(DEBUG),1)
 	export LDFLAGS = -g
 else
 	export CFLAGS ?= -O2 -Werror -Wall -Wextra \
+		-Wfloat-equal \
+		-Wformat=2 \
+		-Winit-self \
 		-Wmissing-format-attribute \
 		-Wmissing-noreturn \
+		-Wmissing-prototypes \
+		-Wnull-dereference \
 		-Wpointer-arith \
 		-Wshadow \
 		-Wstrict-prototypes \

@@ -1,3 +1,6 @@
+#ifndef SELINUX_INTERNAL_H_
+#define SELINUX_INTERNAL_H_
+
 #include <selinux/selinux.h>
 #include <pthread.h>
 
@@ -69,8 +72,30 @@ extern int selinux_page_size ;
 			pthread_mutex_unlock(LOCK);		\
 	} while (0)
 
+#pragma weak pthread_create
+#pragma weak pthread_join
+#pragma weak pthread_cond_init
+#pragma weak pthread_cond_signal
+#pragma weak pthread_cond_destroy
+#pragma weak pthread_cond_wait
+
+/* check if all functions needed to do parallel operations are available */
+#define __pthread_supported (					\
+	pthread_create &&					\
+	pthread_join &&						\
+	pthread_cond_init &&					\
+	pthread_cond_destroy &&					\
+	pthread_cond_signal &&					\
+	pthread_cond_wait					\
+)
 
 #define SELINUXDIR "/etc/selinux/"
 #define SELINUXCONFIG SELINUXDIR "config"
 
 extern int has_selinux_config ;
+
+#ifndef HAVE_STRLCPY
+size_t strlcpy(char *dest, const char *src, size_t size);
+#endif
+
+#endif /* SELINUX_INTERNAL_H_ */

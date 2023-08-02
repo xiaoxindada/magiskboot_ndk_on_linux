@@ -393,6 +393,8 @@ static int typealias_list_create(struct policydb *pdb)
 	}
 
 	typealias_lists = calloc(max_decl_id + 1, sizeof(*typealias_lists));
+	if (!typealias_lists)
+		goto exit;
 	typealias_lists_len = max_decl_id + 1;
 
 	rc = hashtab_map(pdb->p_types.table, typealiases_gather_map, pdb);
@@ -430,7 +432,7 @@ static int stack_init(struct stack **stack)
 		goto exit;
 	}
 
-	s->stack = malloc(sizeof(*s->stack) * STACK_SIZE);
+	s->stack = calloc(STACK_SIZE, sizeof(*s->stack));
 	if (s->stack == NULL) {
 		goto exit;
 	}
@@ -453,7 +455,7 @@ static int stack_push(struct stack *stack, void *ptr)
 	void *new_stack;
 
 	if (stack->pos + 1 == stack->size) {
-		new_stack = realloc(stack->stack, sizeof(*stack->stack) * (stack->size * 2));
+		new_stack = reallocarray(stack->stack, stack->size * 2, sizeof(*stack->stack));
 		if (new_stack == NULL) {
 			goto exit;
 		}
@@ -622,7 +624,7 @@ exit:
 	return rc;
 }
 
-#define next_bit_in_range(i, p) ((i + 1 < sizeof(p)*8) && xperm_test((i + 1), p))
+#define next_bit_in_range(i, p) (((i) + 1 < sizeof(p)*8) && xperm_test(((i) + 1), p))
 
 static int xperms_to_cil(const av_extended_perms_t *xperms)
 {
@@ -1008,7 +1010,7 @@ static int ebitmap_to_names(struct ebitmap *map, char **vals_to_names, char ***n
 		goto exit;
 	}
 
-	name_arr = malloc(sizeof(*name_arr) * num);
+	name_arr = calloc(num, sizeof(*name_arr));
 	if (name_arr == NULL) {
 		log_err("Out of memory");
 		rc = -1;
@@ -1259,7 +1261,7 @@ static int cond_expr_to_cil(int indent, struct policydb *pdb, struct cond_expr *
 	char *val2 = NULL;
 	unsigned int num_params;
 	const char *op;
-	const char *fmt_str;
+	const char *sep;
 	const char *type;
 
 	rc = stack_init(&stack);
@@ -1308,11 +1310,11 @@ static int cond_expr_to_cil(int indent, struct policydb *pdb, struct cond_expr *
 					rc = -1;
 					goto exit;
 				}
-				fmt_str = "(%s %s)";
+				sep = "";
 			} else {
 				val2 = stack_pop(stack);
 				val1 = stack_pop(stack);
-				fmt_str = "(%s %s %s)";
+				sep = " ";
 			}
 
 			if (val1 == NULL || val2 == NULL) {
@@ -1334,10 +1336,7 @@ static int cond_expr_to_cil(int indent, struct policydb *pdb, struct cond_expr *
 				goto exit;
 			}
 
-			// although we always supply val2 and there isn't always a 2nd
-			// value, it should only be used when there are actually two values
-			// in the format strings
-			rlen = snprintf(new_val, len, fmt_str, op, val1, val2);
+			rlen = snprintf(new_val, len, "(%s %s%s%s)", op, val1, sep, val2);
 			if (rlen < 0 || rlen >= len) {
 				log_err("Failed to generate conditional expression");
 				rc = -1;
@@ -1623,6 +1622,13 @@ static int filename_trans_to_cil(int indent, struct policydb *pdb, struct filena
 					    rule->name,
 					    pdb->p_type_val_to_name[rule->otype - 1]);
 			}
+			if (rule->flags & RULE_SELF) {
+				cil_println(indent, "(typetransition %s self %s \"%s\" %s)",
+					    stypes[stype],
+					    pdb->p_class_val_to_name[rule->tclass - 1],
+					    rule->name,
+					    pdb->p_type_val_to_name[rule->otype - 1]);
+			}
 		}
 
 		names_destroy(&stypes, &num_stypes);
@@ -1711,7 +1717,7 @@ static int constraint_expr_to_string(struct policydb *pdb, struct constraint_exp
 	char *val2 = NULL;
 	uint32_t num_params;
 	const char *op;
-	const char *fmt_str;
+	const char *sep;
 	const char *attr1;
 	const char *attr2;
 	char *names = NULL;
@@ -1795,6 +1801,10 @@ static int constraint_expr_to_string(struct policydb *pdb, struct constraint_exp
 				}
 				if (num_names == 0) {
 					names = strdup("NO_IDENTIFIER");
+					if (!names) {
+						rc = -1;
+						goto exit;
+					}
 				} else {
 					rc = name_list_to_string(name_list, num_names, &names);
 					if (rc != 0) {
@@ -1849,11 +1859,11 @@ static int constraint_expr_to_string(struct policydb *pdb, struct constraint_exp
 					rc = -1;
 					goto exit;
 				}
-				fmt_str = "(%s %s)";
+				sep = "";
 			} else {
 				val2 = stack_pop(stack);
 				val1 = stack_pop(stack);
-				fmt_str = "(%s %s %s)";
+				sep = " ";
 			}
 
 			if (val1 == NULL || val2 == NULL) {
@@ -1875,10 +1885,7 @@ static int constraint_expr_to_string(struct policydb *pdb, struct constraint_exp
 				goto exit;
 			}
 
-			// although we always supply val2 and there isn't always a 2nd
-			// value, it should only be used when there are actually two values
-			// in the format strings
-			rlen = snprintf(new_val, len, fmt_str, op, val1, val2);
+			rlen = snprintf(new_val, len, "(%s %s%s%s)", op, val1, sep, val2);
 			if (rlen < 0 || rlen >= len) {
 				log_err("Failed to generate constraint expression");
 				rc = -1;
@@ -2323,7 +2330,7 @@ static int user_to_cil(int indent, struct policydb *pdb, struct avrule_block *bl
 	}
 
 	if (block->flags & AVRULE_OPTIONAL) {
-		// sensitivites in user statements in optionals do not have the
+		// sensitivities in user statements in optionals do not have the
 		// standard -1 offset
 		sens_offset = 0;
 	}
@@ -2562,6 +2569,11 @@ static int ocontext_isid_to_cil(struct policydb *pdb, const char *const *sid_to_
 			goto exit;
 		}
 		item->sid_key = strdup(sid);
+		if (!item->sid_key) {
+			log_err("Out of memory");
+			rc = -1;
+			goto exit;
+		}
 		item->next = head;
 		head = item;
 	}
@@ -2961,10 +2973,35 @@ static int genfscon_to_cil(struct policydb *pdb)
 {
 	struct genfs *genfs;
 	struct ocontext *ocon;
+	uint32_t sclass;
 
 	for (genfs = pdb->genfs; genfs != NULL; genfs = genfs->next) {
 		for (ocon = genfs->head; ocon != NULL; ocon = ocon->next) {
-			cil_printf("(genfscon %s \"%s\" ", genfs->fstype, ocon->u.name);
+			sclass = ocon->v.sclass;
+			if (sclass) {
+				const char *file_type;
+				const char *class_name = pdb->p_class_val_to_name[sclass-1];
+				if (strcmp(class_name, "file") == 0) {
+					file_type = "file";
+				} else if (strcmp(class_name, "dir") == 0) {
+					file_type = "dir";
+				} else if (strcmp(class_name, "chr_file") == 0) {
+					file_type = "char";
+				} else if (strcmp(class_name, "blk_file") == 0) {
+					file_type = "block";
+				} else if (strcmp(class_name, "sock_file") == 0) {
+					file_type = "socket";
+				} else if (strcmp(class_name, "fifo_file") == 0) {
+					file_type = "pipe";
+				} else if (strcmp(class_name, "lnk_file") == 0) {
+					file_type = "symlink";
+				} else {
+					return -1;
+				}
+				cil_printf("(genfscon %s \"%s\" %s ", genfs->fstype, ocon->u.name, file_type);
+			} else {
+				cil_printf("(genfscon %s \"%s\" ", genfs->fstype, ocon->u.name);
+			}
 			context_to_cil(pdb, &ocon->context[0]);
 			cil_printf(")\n");
 		}
@@ -4123,7 +4160,7 @@ exit:
 static int fp_to_buffer(FILE *fp, char **data, size_t *data_len)
 {
 	int rc = -1;
-	char *d = NULL;
+	char *d = NULL, *d_tmp;
 	size_t d_len = 0;
 	size_t read_len = 0;
 	size_t max_len = 1 << 17; // start at 128KB, this is enough to hold about half of all the existing pp files
@@ -4139,12 +4176,13 @@ static int fp_to_buffer(FILE *fp, char **data, size_t *data_len)
 		d_len += read_len;
 		if (d_len == max_len) {
 			max_len *= 2;
-			d = realloc(d, max_len);
-			if (d == NULL) {
+			d_tmp = realloc(d, max_len);
+			if (d_tmp == NULL) {
 				log_err("Out of memory");
 				rc = -1;
 				goto exit;
 			}
+			d = d_tmp;
 		}
 	}
 

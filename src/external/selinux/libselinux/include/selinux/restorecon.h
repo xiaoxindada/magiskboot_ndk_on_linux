@@ -2,6 +2,7 @@
 #define _RESTORECON_H_
 
 #include <sys/types.h>
+#include <stddef.h>
 #include <stdarg.h>
 
 #ifdef __cplusplus
@@ -23,6 +24,19 @@ extern "C" {
  */
 extern int selinux_restorecon(const char *pathname,
 				    unsigned int restorecon_flags);
+/**
+ * selinux_restorecon_parallel - Relabel files, optionally use more threads.
+ * @pathname: specifies file/directory to relabel.
+ * @restorecon_flags: specifies the actions to be performed when relabeling.
+ * @nthreads: specifies the number of threads to use (0 = use number of CPUs
+ *            currently online)
+ *
+ * Same as selinux_restorecon(3), but allows to use multiple threads to do
+ * the work.
+ */
+extern int selinux_restorecon_parallel(const char *pathname,
+				       unsigned int restorecon_flags,
+				       size_t nthreads);
 /*
  * restorecon_flags options
  */
@@ -107,6 +121,11 @@ extern int selinux_restorecon(const char *pathname,
  */
 #define SELINUX_RESTORECON_CONFLICT_ERROR		0x10000
 
+/*
+ * Count, but otherwise ignore, errors during the file tree walk.
+ */
+#define SELINUX_RESTORECON_COUNT_ERRORS			0x20000
+
 /**
  * selinux_restorecon_set_sehandle - Set the global fc handle.
  * @hndl: specifies handle to set as the global fc handle.
@@ -190,6 +209,16 @@ extern int selinux_restorecon_xattr(const char *pathname,
 #define SELINUX_RESTORECON_XATTR_DELETE_ALL_DIGESTS		0x0004
 /* Do not read /proc/mounts. */
 #define SELINUX_RESTORECON_XATTR_IGNORE_MOUNTS			0x0008
+
+/* selinux_restorecon_get_skipped_errors - Get the number of errors ignored
+ * during re-labeling.
+ *
+ * If SELINUX_RESTORECON_COUNT_ERRORS was passed to selinux_restorecon(3) or
+ * selinux_restorecon_parallel(3), and that function returned successfully
+ * (i.e., with a zero return value), then this function returns the number of
+ * errors ignored during the file tree walk.
+ */
+extern long unsigned selinux_restorecon_get_skipped_errors(void);
 
 #ifdef __cplusplus
 }

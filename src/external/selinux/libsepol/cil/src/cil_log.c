@@ -37,12 +37,12 @@
 
 static enum cil_log_level cil_log_level = CIL_ERR;
 
-void cil_default_log_handler(__attribute__((unused)) int lvl, const char *msg)
+static void cil_default_log_handler(__attribute__((unused)) int lvl, const char *msg)
 {
 	fprintf(stderr, "%s", msg);
 }
 
-void (*cil_log_handler)(int lvl, const char *msg) = &cil_default_log_handler;
+static void (*cil_log_handler)(int lvl, const char *msg) = &cil_default_log_handler;
 
 void cil_set_log_handler(void (*handler)(int lvl, const char *msg))
 {
@@ -53,8 +53,13 @@ __attribute__ ((format (printf, 2, 0))) void cil_vlog(enum cil_log_level lvl, co
 {
 	if (cil_log_level >= lvl) {
 		char buff[MAX_LOG_SIZE];
-		vsnprintf(buff, MAX_LOG_SIZE, msg, args);
-		(*cil_log_handler)(cil_log_level, buff);
+		int n = vsnprintf(buff, MAX_LOG_SIZE, msg, args);
+		if (n > 0) {
+			(*cil_log_handler)(cil_log_level, buff);
+			if (n >= MAX_LOG_SIZE) {
+				(*cil_log_handler)(cil_log_level, " <LOG MESSAGE TRUNCATED>");
+			}
+		}
 	}
 }
 
@@ -69,4 +74,9 @@ __attribute__ ((format (printf, 2, 3))) void cil_log(enum cil_log_level lvl, con
 void cil_set_log_level(enum cil_log_level lvl)
 {
 	cil_log_level = lvl;
+}
+
+enum cil_log_level cil_get_log_level(void)
+{
+	return cil_log_level;
 }

@@ -32,7 +32,7 @@ CFLAGS ?= -O -Wall -W -Wundef -Wformat-y2k -Wformat-security -Winit-self -Wmissi
           -Wno-missing-field-initializers -Wno-sign-compare \
           -Wno-format-nonliteral -Wframe-larger-than=$(MAX_STACK_SIZE) -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2 \
           -fstack-protector-all --param=ssp-buffer-size=4 -fexceptions \
-          -fasynchronous-unwind-tables -fdiagnostics-show-option -funit-at-a-time \
+          -fasynchronous-unwind-tables -fdiagnostics-show-option \
           -Werror -Wno-aggregate-return -Wno-redundant-decls -Wstrict-overflow=5 \
           $(EXTRA_CFLAGS)
 
@@ -44,7 +44,6 @@ endif
 override CFLAGS += -I../include -D_GNU_SOURCE $(DISABLE_FLAGS) $(PCRE_CFLAGS)
 override LDFLAGS += -L../src
 override LDLIBS += -lselinux $(FTS_LDLIBS)
-PCRE_LDLIBS ?= -lpcre
 
 ifeq ($(ANDROID_HOST),y)
 TARGETS=sefcontext_compile

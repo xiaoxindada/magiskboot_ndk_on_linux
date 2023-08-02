@@ -28,6 +28,8 @@
 #include <sepol/policydb/policydb.h>
 #include <sepol/policydb/util.h>
 
+#include "private.h"
+
 struct val_to_name {
 	unsigned int val;
 	char *name;
@@ -40,6 +42,8 @@ struct val_to_name {
  * 0).  Return 0 on success, -1 on out of memory. */
 int add_i_to_a(uint32_t i, uint32_t * cnt, uint32_t ** a)
 {
+	uint32_t *new;
+
 	if (cnt == NULL || a == NULL)
 		return -1;
 
@@ -48,17 +52,18 @@ int add_i_to_a(uint32_t i, uint32_t * cnt, uint32_t ** a)
 	 * than be smart about it, for now we realloc() the array each
 	 * time a new uint32_t is added! */
 	if (*a != NULL)
-		*a = (uint32_t *) realloc(*a, (*cnt + 1) * sizeof(uint32_t));
+		new = (uint32_t *) reallocarray(*a, *cnt + 1, sizeof(uint32_t));
 	else {			/* empty list */
 
 		*cnt = 0;
-		*a = (uint32_t *) malloc(sizeof(uint32_t));
+		new = (uint32_t *) malloc(sizeof(uint32_t));
 	}
-	if (*a == NULL) {
+	if (new == NULL) {
 		return -1;
 	}
-	(*a)[*cnt] = i;
+	new[*cnt] = i;
 	(*cnt)++;
+	*a = new;
 	return 0;
 }
 
@@ -119,7 +124,7 @@ char *sepol_av_to_string(policydb_t * policydbp, uint32_t tclass,
 	return avbuf;
 }
 
-#define next_bit_in_range(i, p) ((i + 1 < sizeof(p)*8) && xperm_test((i + 1), p))
+#define next_bit_in_range(i, p) (((i) + 1 < sizeof(p)*8) && xperm_test(((i) + 1), p))
 
 char *sepol_extended_perms_to_string(avtab_extended_perms_t *xperms)
 {

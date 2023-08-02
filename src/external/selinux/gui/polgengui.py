@@ -63,16 +63,17 @@ def get_all_modules():
 ##
 ## I18N
 ##
-PROGNAME = "policycoreutils"
+PROGNAME = "selinux-gui"
 try:
     import gettext
     kwargs = {}
     if sys.version_info < (3,):
         kwargs['unicode'] = True
-    gettext.install(PROGNAME,
+    t = gettext.translation(PROGNAME,
                     localedir="/usr/share/locale",
-                    codeset='utf-8',
-                    **kwargs)
+                    **kwargs,
+                    fallback=True)
+    _ = t.gettext
 except:
     try:
         import builtins
@@ -480,7 +481,7 @@ class childWindow:
             my_policy = sepolicy.generate.policy(self.get_name(), self.get_type())
 
             iter = self.boolean_store.get_iter_first()
-            while(iter):
+            while iter:
                 my_policy.add_boolean(self.boolean_store.get_value(iter, 0), self.boolean_store.get_value(iter, 1))
                 iter = self.boolean_store.iter_next(iter)
 
@@ -526,7 +527,7 @@ class childWindow:
             my_policy.set_out_udp(self.out_udp_all_checkbutton.get_active(), self.out_udp_entry.get_text())
 
             iter = self.store.get_iter_first()
-            while(iter):
+            while iter:
                 if self.store.get_value(iter, 1) == FILE:
                     my_policy.add_file(self.store.get_value(iter, 0))
                 else:

@@ -39,33 +39,33 @@
 #define NODE3_CONTEXT "system_u:object_r:third_node_t:s0"
 
 /* node_record.h */
-void test_node_compare(void);
-void test_node_compare2(void);
-void test_node_key_create(void);
-void test_node_key_extract(void);
-void test_node_get_set_addr(void);
-void test_node_get_set_addr_bytes(void);
-void test_node_get_set_mask(void);
-void test_node_get_set_mask_bytes(void);
-void test_node_get_set_proto(void);
-void test_node_get_proto_str(void);
-void test_node_get_set_con(void);
-void test_node_create(void);
-void test_node_clone(void);
+static void test_node_compare(void);
+static void test_node_compare2(void);
+static void test_node_key_create(void);
+static void test_node_key_extract(void);
+static void test_node_get_set_addr(void);
+static void test_node_get_set_addr_bytes(void);
+static void test_node_get_set_mask(void);
+static void test_node_get_set_mask_bytes(void);
+static void test_node_get_set_proto(void);
+static void test_node_get_proto_str(void);
+static void test_node_get_set_con(void);
+static void test_node_create(void);
+static void test_node_clone(void);
 
 /* nodes_policy.h */
-void test_node_query(void);
-void test_node_exists(void);
-void test_node_count(void);
-void test_node_iterate(void);
-void test_node_list(void);
+static void test_node_query(void);
+static void test_node_exists(void);
+static void test_node_count(void);
+static void test_node_iterate(void);
+static void test_node_list(void);
 
 /* nodes_local.h */
-void test_node_modify_del_query_local(void);
-void test_node_exists_local(void);
-void test_node_count_local(void);
-void test_node_iterate_local(void);
-void test_node_list_local(void);
+static void test_node_modify_del_query_local(void);
+static void test_node_exists_local(void);
+static void test_node_count_local(void);
+static void test_node_iterate_local(void);
+static void test_node_list_local(void);
 
 extern semanage_handle_t *sh;
 
@@ -130,7 +130,7 @@ int node_add_tests(CU_pSuite suite)
 
 /* Helpers */
 
-semanage_node_t *get_node_nth(int idx)
+static semanage_node_t *get_node_nth(int idx)
 {
 	semanage_node_t **records;
 	semanage_node_t *node;
@@ -148,10 +148,12 @@ semanage_node_t *get_node_nth(int idx)
 		if (i != (unsigned int) idx)
 			semanage_node_free(records[i]);
 
+	free(records);
+
 	return node;
 }
 
-semanage_node_key_t *get_node_key_nth(int idx)
+static semanage_node_key_t *get_node_key_nth(int idx)
 {
 	semanage_node_key_t *key;
 	semanage_node_t *node;
@@ -167,10 +169,12 @@ semanage_node_key_t *get_node_key_nth(int idx)
 	CU_ASSERT_FATAL(res >= 0);
 	CU_ASSERT_PTR_NOT_NULL_FATAL(key);
 
+	semanage_node_free(node);
+
 	return key;
 }
 
-void add_local_node(int idx)
+static void add_local_node(int idx)
 {
 	semanage_node_t *node;
 	semanage_node_key_t *key = NULL;
@@ -181,19 +185,26 @@ void add_local_node(int idx)
 	CU_ASSERT_PTR_NOT_NULL_FATAL(key);
 
 	CU_ASSERT_FATAL(semanage_node_modify_local(sh, key, node) >= 0);
+
+	/* cleanup */
+	semanage_node_key_free(key);
+	semanage_node_free(node);
 }
 
-void delete_local_node(int idx)
+static void delete_local_node(int idx)
 {
 	semanage_node_key_t *key = NULL;
 
 	key = get_node_key_nth(idx);
 
 	CU_ASSERT_FATAL(semanage_node_del_local(sh, key) >= 0);
+
+	/* cleanup */
+	semanage_node_key_free(key);
 }
 
 /* Function semanage_node_compare */
-void test_node_compare(void)
+static void test_node_compare(void)
 {
 	semanage_node_t *node = NULL;
 	semanage_node_key_t *key1 = NULL;
@@ -222,7 +233,7 @@ void test_node_compare(void)
 }
 
 /* Function semanage_node_compare2 */
-void test_node_compare2(void)
+static void test_node_compare2(void)
 {
 	semanage_node_t *node1 = NULL;
 	semanage_node_t *node2 = NULL;
@@ -249,7 +260,7 @@ void test_node_compare2(void)
 }
 
 /* Function semanage_node_key_create */
-void test_node_key_create(void)
+static void test_node_key_create(void)
 {
 	semanage_node_key_t *key = NULL;
 
@@ -267,7 +278,7 @@ void test_node_key_create(void)
 }
 
 /* Function semanage_node_key_extract */
-void test_node_key_extract(void)
+static void test_node_key_extract(void)
 {
 	semanage_node_t *node = NULL;
 	semanage_node_key_t *key = NULL;
@@ -287,7 +298,7 @@ void test_node_key_extract(void)
 }
 
 /* Function semanage_node_get_addr, semanage_node_set_addr */
-void test_node_get_set_addr(void)
+static void test_node_get_set_addr(void)
 {
 	semanage_node_t *node = NULL;
 	char *addr = NULL;
@@ -305,12 +316,13 @@ void test_node_get_set_addr(void)
 	CU_ASSERT_STRING_EQUAL(addr, "192.168.0.1");
 
 	/* cleanup */
+	free(addr);
 	semanage_node_free(node);
 	cleanup_handle(SH_CONNECT);
 }
 
 /* Function semanage_node_get_addr_bytes, semanage_node_set_addr_bytes */
-void test_node_get_set_addr_bytes(void)
+static void test_node_get_set_addr_bytes(void)
 {
 	semanage_node_t *node = NULL;
 	char addr1[] = { 192, 168, 0, 1 };
@@ -334,12 +346,13 @@ void test_node_get_set_addr_bytes(void)
 		CU_ASSERT(addr1[i] == addr2[i]);
 
 	/* cleanup */
+	free(addr2);
 	semanage_node_free(node);
 	cleanup_handle(SH_CONNECT);
 }
 
 /* Function semanage_node_get_mask, semanage_node_set_mask */
-void test_node_get_set_mask(void)
+static void test_node_get_set_mask(void)
 {
 	semanage_node_t *node = NULL;
 	char *mask = NULL;
@@ -357,12 +370,13 @@ void test_node_get_set_mask(void)
 	CU_ASSERT_STRING_EQUAL(mask, "255.255.255.0");
 
 	/* cleanup */
+	free(mask);
 	semanage_node_free(node);
 	cleanup_handle(SH_CONNECT);
 }
 
 /* Function semanage_node_get_mask_bytes, semanage_node_set_mask_bytes */
-void test_node_get_set_mask_bytes(void)
+static void test_node_get_set_mask_bytes(void)
 {
 	semanage_node_t *node = NULL;
 	char mask1[] = { 255, 255, 255, 0 };
@@ -386,12 +400,13 @@ void test_node_get_set_mask_bytes(void)
 		CU_ASSERT(mask1[i] == mask2[i]);
 
 	/* cleanup */
+	free(mask2);
 	semanage_node_free(node);
 	cleanup_handle(SH_CONNECT);
 }
 
 /* Function semanage_node_get_proto, semanage_node_set_proto */
-void test_node_get_set_proto(void)
+static void test_node_get_set_proto(void)
 {
 	semanage_node_t *node = NULL;
 
@@ -409,7 +424,7 @@ void test_node_get_set_proto(void)
 }
 
 /* Function semanage_node_get_proto_str */
-void test_node_get_proto_str(void)
+static void test_node_get_proto_str(void)
 {
 	CU_ASSERT_STRING_EQUAL(semanage_node_get_proto_str(SEMANAGE_PROTO_IP4),
 							   "ipv4");
@@ -418,7 +433,7 @@ void test_node_get_proto_str(void)
 }
 
 /* Function semanage_node_get_con, semanage_node_set_con */
-void test_node_get_set_con(void)
+static void test_node_get_set_con(void)
 {
 	semanage_node_t *node = NULL;
 	semanage_context_t *con1 = NULL;
@@ -436,12 +451,13 @@ void test_node_get_set_con(void)
 	CU_ASSERT_CONTEXT_EQUAL(con1, con2);
 
 	/* cleanup */
+	semanage_context_free(con1);
 	semanage_node_free(node);
 	cleanup_handle(SH_CONNECT);
 }
 
 /* Function semanage_node_create */
-void test_node_create(void)
+static void test_node_create(void)
 {
 	semanage_node_t *node = NULL;
 	semanage_context_t *con = NULL;
@@ -461,12 +477,13 @@ void test_node_create(void)
 	CU_ASSERT(semanage_node_set_con(sh, node, con) >= 0);
 
 	/* cleanup */
+	semanage_context_free(con);
 	semanage_node_free(node);
 	cleanup_handle(SH_CONNECT);
 }
 
 /* Function semanage_node_clone */
-void test_node_clone(void)
+static void test_node_clone(void)
 {
 	semanage_node_t *node = NULL;
 	semanage_node_t *node_clone = NULL;
@@ -508,13 +525,16 @@ void test_node_clone(void)
 	CU_ASSERT_CONTEXT_EQUAL(con, con2);
 
 	/* cleanup */
+	free(mask2);
+	free(addr2);
+	semanage_context_free(con);
 	semanage_node_free(node);
 	semanage_node_free(node_clone);
 	cleanup_handle(SH_CONNECT);
 }
 
 /* Function semanage_node_query */
-void test_node_query(void)
+static void test_node_query(void)
 {
 	semanage_node_t *node = NULL;
 	semanage_node_t *node_exp = NULL;
@@ -552,12 +572,14 @@ void test_node_query(void)
 	CU_ASSERT_CONTEXT_EQUAL(con, con_exp);
 
 	/* cleanup */
+	semanage_node_key_free(key);
+	semanage_node_free(node_exp);
 	semanage_node_free(node);
 	cleanup_handle(SH_CONNECT);
 }
 
 /* Function semanage_node_exists */
-void test_node_exists(void)
+static void test_node_exists(void)
 {
 	semanage_node_key_t *key1 = NULL;
 	semanage_node_key_t *key2 = NULL;
@@ -582,7 +604,7 @@ void test_node_exists(void)
 }
 
 /* Function semanage_node_count */
-void test_node_count(void)
+static void test_node_count(void)
 {
 	unsigned int count = 42;
 
@@ -600,13 +622,13 @@ void test_node_count(void)
 /* Function semanage_node_iterate */
 unsigned int counter_node_iterate = 0;
 
-int handler_node_iterate(const semanage_node_t *record, void *varg)
+static int handler_node_iterate(const semanage_node_t *record, void *varg)
 {
 	counter_node_iterate++;
 	return 0;
 }
 
-void test_node_iterate(void)
+static void test_node_iterate(void)
 {
 	/* setup */
 	setup_handle(SH_CONNECT);
@@ -620,7 +642,7 @@ void test_node_iterate(void)
 }
 
 /* Function semanage_node_list */
-void test_node_list(void)
+static void test_node_list(void)
 {
 	semanage_node_t **records = NULL;
 	unsigned int count = 42;
@@ -638,6 +660,8 @@ void test_node_list(void)
 	for (unsigned int i = 0; i < count; i++)
 		semanage_node_free(records[i]);
 
+	free(records);
+
 	/* cleanup */
 	cleanup_handle(SH_CONNECT);
 }
@@ -645,7 +669,7 @@ void test_node_list(void)
 /* Function semanage_node_modify_local, semanage_node_del_local,
  * semanage_node_query_local
  */
-void test_node_modify_del_query_local(void)
+static void test_node_modify_del_query_local(void)
 {
 	semanage_node_t *node;
 	semanage_node_t *node_local;
@@ -679,6 +703,7 @@ void test_node_modify_del_query_local(void)
 
 	CU_ASSERT(semanage_node_query_local(sh, key, &node_local) >= 0);
 	CU_ASSERT_PTR_NOT_NULL_FATAL(node_local);
+	semanage_node_free(node_local);
 
 	CU_ASSERT(semanage_node_del_local(sh, key) >= 0);
 	CU_ASSERT(semanage_node_del_local(sh, key_tmp) >= 0);
@@ -686,13 +711,15 @@ void test_node_modify_del_query_local(void)
 	CU_ASSERT(semanage_node_query_local(sh, key, &node_local) < 0);
 
 	/* cleanup */
+	semanage_node_key_free(key_tmp);
+	semanage_node_key_free(key);
 	semanage_node_free(node);
 	semanage_node_free(node_tmp);
 	cleanup_handle(SH_TRANS);
 }
 
 /* Function semanage_node_exists_local */
-void test_node_exists_local(void)
+static void test_node_exists_local(void)
 {
 	semanage_node_key_t *key1 = NULL;
 	semanage_node_key_t *key2 = NULL;
@@ -718,7 +745,7 @@ void test_node_exists_local(void)
 }
 
 /* Function semanage_node_count_local */
-void test_node_count_local(void)
+static void test_node_count_local(void)
 {
 	unsigned int count = 42;
 
@@ -752,13 +779,13 @@ void test_node_count_local(void)
 /* Function semanage_node_iterate_local */
 unsigned int counter_node_iterate_local = 0;
 
-int handler_node_iterate_local(const semanage_node_t *record, void *varg)
+static int handler_node_iterate_local(const semanage_node_t *record, void *varg)
 {
 	counter_node_iterate_local++;
 	return 0;
 }
 
-void test_node_iterate_local(void)
+static void test_node_iterate_local(void)
 {
 	/* setup */
 	setup_handle(SH_TRANS);
@@ -778,7 +805,7 @@ void test_node_iterate_local(void)
 }
 
 /* Function semanage_node_list_local */
-void test_node_list_local(void)
+static void test_node_list_local(void)
 {
 	semanage_node_t **records = NULL;
 	unsigned int count = 42;
@@ -799,6 +826,8 @@ void test_node_list_local(void)
 	/* cleanup */
 	for (unsigned int i = 0; i < count; i++)
 		semanage_node_free(records[i]);
+
+	free(records);
 
 	delete_local_node(I_FIRST);
 	delete_local_node(I_SECOND);

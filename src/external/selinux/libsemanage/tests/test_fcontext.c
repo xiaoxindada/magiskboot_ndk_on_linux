@@ -45,57 +45,35 @@ unsigned int FCONTEXTS_LEN = sizeof(FCONTEXTS);
 #define FCONTEXT_NONEXISTENT_TYPE SEMANAGE_FCONTEXT_ALL
 
 /* fcontext_record.h */
-void test_fcontext_compare(void);
-void test_fcontext_compare2(void);
-void test_fcontext_key_create(void);
-void test_fcontext_key_extract(void);
-void test_fcontext_get_set_expr(void);
-void test_fcontext_get_set_type(void);
-void test_fcontext_get_type_str(void);
-void test_fcontext_get_set_con(void);
-void test_fcontext_create(void);
-void test_fcontext_clone(void);
+static void test_fcontext_compare(void);
+static void test_fcontext_compare2(void);
+static void test_fcontext_key_create(void);
+static void test_fcontext_key_extract(void);
+static void test_fcontext_get_set_expr(void);
+static void test_fcontext_get_set_type(void);
+static void test_fcontext_get_type_str(void);
+static void test_fcontext_get_set_con(void);
+static void test_fcontext_create(void);
+static void test_fcontext_clone(void);
 
 /* fcontext_policy.h */
-void test_fcontext_query(void);
-void test_fcontext_exists(void);
-void test_fcontext_count(void);
-void test_fcontext_iterate(void);
-void test_fcontext_list(void);
+static void test_fcontext_query(void);
+static void test_fcontext_exists(void);
+static void test_fcontext_count(void);
+static void test_fcontext_iterate(void);
+static void test_fcontext_list(void);
 
 /* fcontext_local.h */
-void test_fcontext_modify_del_local(void);
-void test_fcontext_query_local(void);
-void test_fcontext_exists_local(void);
-void test_fcontext_count_local(void);
-void test_fcontext_iterate_local(void);
-void test_fcontext_list_local(void);
+static void test_fcontext_modify_del_local(void);
+static void test_fcontext_query_local(void);
+static void test_fcontext_exists_local(void);
+static void test_fcontext_count_local(void);
+static void test_fcontext_iterate_local(void);
+static void test_fcontext_list_local(void);
 
 extern semanage_handle_t *sh;
 
-int get_type(char *t)
-{
-	if (strcmp(t, "--") == 0)
-		return SEMANAGE_FCONTEXT_ALL;
-	else if (strcmp(t, "-f") == 0)
-		return SEMANAGE_FCONTEXT_REG;
-	else if (strcmp(t, "-d") == 0)
-		return SEMANAGE_FCONTEXT_DIR;
-	else if (strcmp(t, "-c") == 0)
-		return SEMANAGE_FCONTEXT_CHAR;
-	else if (strcmp(t, "-b") == 0)
-		return SEMANAGE_FCONTEXT_BLOCK;
-	else if (strcmp(t, "-s") == 0)
-		return SEMANAGE_FCONTEXT_SOCK;
-	else if (strcmp(t, "-l") == 0)
-		return SEMANAGE_FCONTEXT_LINK;
-	else if (strcmp(t, "-p") == 0)
-		return SEMANAGE_FCONTEXT_PIPE;
-	else
-		return -1;
-}
-
-int write_file_contexts(const char *data, unsigned int data_len)
+static int write_file_contexts(const char *data, unsigned int data_len)
 {
 	FILE *fptr = fopen("test-policy/store/active/file_contexts", "w+");
 
@@ -187,16 +165,7 @@ int fcontext_add_tests(CU_pSuite suite)
 
 /* Helpers */
 
-semanage_fcontext_t *get_fcontext_new(void)
-{
-	semanage_fcontext_t *fcontext;
-
-	CU_ASSERT_FATAL(semanage_fcontext_create(sh, &fcontext) >= 0);
-
-	return fcontext;
-}
-
-semanage_fcontext_t *get_fcontext_nth(int idx)
+static semanage_fcontext_t *get_fcontext_nth(int idx)
 {
 	semanage_fcontext_t **records;
 	semanage_fcontext_t *fcontext;
@@ -214,10 +183,12 @@ semanage_fcontext_t *get_fcontext_nth(int idx)
 		if (i != (unsigned int) idx)
 			semanage_fcontext_free(records[i]);
 
+	free(records);
+
 	return fcontext;
 }
 
-semanage_fcontext_key_t *get_fcontext_key_nth(int idx)
+static semanage_fcontext_key_t *get_fcontext_key_nth(int idx)
 {
 	semanage_fcontext_key_t *key;
 	semanage_fcontext_t *fcontext;
@@ -230,10 +201,12 @@ semanage_fcontext_key_t *get_fcontext_key_nth(int idx)
 	CU_ASSERT_FATAL(semanage_fcontext_key_extract(sh, fcontext, &key) >= 0);
 	CU_ASSERT_PTR_NOT_NULL_FATAL(key);
 
+	semanage_fcontext_free(fcontext);
+
 	return key;
 }
 
-void add_local_fcontext(int fcontext_idx)
+static void add_local_fcontext(int fcontext_idx)
 {
 	semanage_fcontext_t *fcontext;
 	semanage_fcontext_key_t *key = NULL;
@@ -246,9 +219,13 @@ void add_local_fcontext(int fcontext_idx)
 	CU_ASSERT_PTR_NOT_NULL_FATAL(key);
 
 	CU_ASSERT_FATAL(semanage_fcontext_modify_local(sh, key, fcontext) >= 0);
+
+	/* cleanup */
+	semanage_fcontext_key_free(key);
+	semanage_fcontext_free(fcontext);
 }
 
-void delete_local_fcontext(int fcontext_idx)
+static void delete_local_fcontext(int fcontext_idx)
 {
 	semanage_fcontext_key_t *key = NULL;
 
@@ -257,9 +234,11 @@ void delete_local_fcontext(int fcontext_idx)
 	key = get_fcontext_key_nth(fcontext_idx);
 
 	CU_ASSERT_FATAL(semanage_fcontext_del_local(sh, key) >= 0);
+
+	semanage_fcontext_key_free(key);
 }
 
-semanage_fcontext_key_t *get_fcontext_key_from_str(const char *str, int type)
+static semanage_fcontext_key_t *get_fcontext_key_from_str(const char *str, int type)
 {
 	semanage_fcontext_key_t *key;
 	int res;
@@ -276,7 +255,7 @@ semanage_fcontext_key_t *get_fcontext_key_from_str(const char *str, int type)
 }
 
 /* Function semanage_fcontext_compare */
-void test_fcontext_compare(void)
+static void test_fcontext_compare(void)
 {
 	semanage_fcontext_t *fcontext;
 	semanage_fcontext_key_t *key1;
@@ -306,7 +285,7 @@ void test_fcontext_compare(void)
 }
 
 /* Function semanage_fcontext_compare2 */
-void test_fcontext_compare2(void)
+static void test_fcontext_compare2(void)
 {
 	semanage_fcontext_t *fcontext;
 	semanage_fcontext_t *fcontext1;
@@ -335,7 +314,7 @@ void test_fcontext_compare2(void)
 }
 
 /* Function semanage_fcontext_key_create */
-void test_fcontext_key_create(void)
+static void test_fcontext_key_create(void)
 {
 	semanage_fcontext_key_t *key = NULL;
 
@@ -362,7 +341,7 @@ void test_fcontext_key_create(void)
 }
 
 /* Function semanage_fcontext_key_extract */
-void test_fcontext_key_extract(void)
+static void test_fcontext_key_extract(void)
 {
 	semanage_fcontext_t *fcontext;
 	semanage_fcontext_key_t *key;
@@ -382,7 +361,7 @@ void test_fcontext_key_extract(void)
 }
 
 /* Function semanage_fcontext_get_expr, semanage_fcontext_set_expr */
-void test_fcontext_get_set_expr(void)
+static void test_fcontext_get_set_expr(void)
 {
 	semanage_fcontext_t *fcontext;
 	const char *expr = NULL;
@@ -405,7 +384,7 @@ void test_fcontext_get_set_expr(void)
 }
 
 /* Function semanage_fcontext_get_type, semanage_fcontext_set_type */
-void test_fcontext_get_set_type(void)
+static void test_fcontext_get_set_type(void)
 {
 	semanage_fcontext_t *fcontext;
 	int type_exp = SEMANAGE_FCONTEXT_SOCK;
@@ -426,12 +405,12 @@ void test_fcontext_get_set_type(void)
 }
 
 /* Function semanage_fcontext_get_type_str */
-void helper_fcontext_get_type_str(int type, const char *exp_str)
+static void helper_fcontext_get_type_str(int type, const char *exp_str)
 {
 	CU_ASSERT_STRING_EQUAL(semanage_fcontext_get_type_str(type), exp_str);
 }
 
-void test_fcontext_get_type_str(void)
+static void test_fcontext_get_type_str(void)
 {
 	helper_fcontext_get_type_str(SEMANAGE_FCONTEXT_ALL, "all files");
 	helper_fcontext_get_type_str(SEMANAGE_FCONTEXT_REG, "regular file");
@@ -448,7 +427,7 @@ void test_fcontext_get_type_str(void)
 }
 
 /* Function semanage_fcontext_get_con, semanage_fcontext_set_con */
-void helper_fcontext_get_set_con(level_t level, int fcontext_idx,
+static void helper_fcontext_get_set_con(level_t level, int fcontext_idx,
 				 const char *con_str)
 {
 	semanage_fcontext_t *fcontext;
@@ -477,11 +456,12 @@ void helper_fcontext_get_set_con(level_t level, int fcontext_idx,
 	}
 
 	/* cleanup */
+	semanage_context_free(con);
 	semanage_fcontext_free(fcontext);
 	cleanup_handle(level);
 }
 
-void test_fcontext_get_set_con(void)
+static void test_fcontext_get_set_con(void)
 {
 	helper_fcontext_get_set_con(SH_CONNECT, I_FIRST, NULL);
 	helper_fcontext_get_set_con(SH_CONNECT, I_FIRST,
@@ -496,7 +476,7 @@ void test_fcontext_get_set_con(void)
 }
 
 /* Function semanage_fcontext_create */
-void helper_fcontext_create(level_t level)
+static void helper_fcontext_create(level_t level)
 {
 	semanage_fcontext_t *fcontext;
 
@@ -515,7 +495,7 @@ void helper_fcontext_create(level_t level)
 	cleanup_handle(level);
 }
 
-void test_fcontext_create(void)
+static void test_fcontext_create(void)
 {
 	helper_fcontext_create(SH_NULL);
 	helper_fcontext_create(SH_HANDLE);
@@ -524,7 +504,7 @@ void test_fcontext_create(void)
 }
 
 /* Function semanage_fcontext_clone */
-void helper_fcontext_clone(level_t level, int fcontext_idx)
+static void helper_fcontext_clone(level_t level, int fcontext_idx)
 {
 	semanage_fcontext_t *fcontext;
 	semanage_fcontext_t *fcontext_clone;
@@ -560,7 +540,7 @@ void helper_fcontext_clone(level_t level, int fcontext_idx)
 	cleanup_handle(level);
 }
 
-void test_fcontext_clone(void)
+static void test_fcontext_clone(void)
 {
 	helper_fcontext_clone(SH_CONNECT, I_FIRST);
 	helper_fcontext_clone(SH_CONNECT, I_SECOND);
@@ -569,7 +549,7 @@ void test_fcontext_clone(void)
 }
 
 /* Function semanage_fcontext_query */
-void helper_fcontext_query(level_t level, const char *fcontext_expr,
+static void helper_fcontext_query(level_t level, const char *fcontext_expr,
 			   int fcontext_type, int exp_res)
 {
 	semanage_fcontext_key_t *key;
@@ -587,16 +567,18 @@ void helper_fcontext_query(level_t level, const char *fcontext_expr,
 		CU_ASSERT(res >= 0);
 		const char *expr = semanage_fcontext_get_expr(resp);
 		CU_ASSERT_STRING_EQUAL(expr, fcontext_expr);
+		semanage_fcontext_free(resp);
 	} else {
 		CU_ASSERT(res < 0);
 		CU_ASSERT(resp == (void *) 42);
 	}
 
 	/* cleanup */
+	semanage_fcontext_key_free(key);
 	cleanup_handle(level);
 }
 
-void test_fcontext_query(void)
+static void test_fcontext_query(void)
 {
 	helper_fcontext_query(SH_CONNECT, FCONTEXT_NONEXISTENT_EXPR,
 			      FCONTEXT_NONEXISTENT_TYPE, -1);
@@ -611,7 +593,7 @@ void test_fcontext_query(void)
 }
 
 /* Function semanage_fcontext_exists */
-void helper_fcontext_exists(level_t level, const char *fcontext_expr,
+static void helper_fcontext_exists(level_t level, const char *fcontext_expr,
 			    int fcontext_type, int exp_resp)
 {
 	semanage_fcontext_key_t *key;
@@ -630,7 +612,7 @@ void helper_fcontext_exists(level_t level, const char *fcontext_expr,
 	cleanup_handle(level);
 }
 
-void test_fcontext_exists(void)
+static void test_fcontext_exists(void)
 {
 	helper_fcontext_exists(SH_CONNECT, FCONTEXT_NONEXISTENT_EXPR,
 			       FCONTEXT_NONEXISTENT_TYPE, 0);
@@ -645,7 +627,7 @@ void test_fcontext_exists(void)
 }
 
 /* Function semanage_fcontext_count */
-void test_fcontext_count(void)
+static void test_fcontext_count(void)
 {
 	unsigned int resp;
 
@@ -673,14 +655,14 @@ void test_fcontext_count(void)
 /* Function semanage_fcontext_iterate */
 unsigned int counter_fcontext_iterate = 0;
 
-int handler_fcontext_iterate(const semanage_fcontext_t *record, void *varg)
+static int handler_fcontext_iterate(const semanage_fcontext_t *record, void *varg)
 {
 	CU_ASSERT_PTR_NOT_NULL(record);
 	counter_fcontext_iterate++;
 	return 0;
 }
 
-void helper_fcontext_iterate_invalid(void)
+static void helper_fcontext_iterate_invalid(void)
 {
 	/* setup */
 	setup_handle(SH_HANDLE);
@@ -694,7 +676,7 @@ void helper_fcontext_iterate_invalid(void)
 	cleanup_handle(SH_HANDLE);
 }
 
-void helper_fcontext_iterate(level_t level)
+static void helper_fcontext_iterate(level_t level)
 {
 	/* setup */
 	setup_handle(level);
@@ -709,7 +691,7 @@ void helper_fcontext_iterate(level_t level)
 	cleanup_handle(level);
 }
 
-void test_fcontext_iterate(void)
+static void test_fcontext_iterate(void)
 {
 	helper_fcontext_iterate_invalid();
 	helper_fcontext_iterate(SH_CONNECT);
@@ -717,7 +699,7 @@ void test_fcontext_iterate(void)
 }
 
 /* Function semanage_fcontext_list */
-void helper_fcontext_list_invalid(void)
+static void helper_fcontext_list_invalid(void)
 {
 	semanage_fcontext_t **records;
 	unsigned int count;
@@ -734,7 +716,7 @@ void helper_fcontext_list_invalid(void)
 	cleanup_handle(SH_HANDLE);
 }
 
-void helper_fcontext_list(level_t level)
+static void helper_fcontext_list(level_t level)
 {
 	semanage_fcontext_t **records;
 	unsigned int count;
@@ -752,11 +734,13 @@ void helper_fcontext_list(level_t level)
 	for (unsigned int i = 0; i < count; i++)
 		semanage_fcontext_free(records[i]);
 
+	free(records);
+
 	/* cleanup */
 	cleanup_handle(level);
 }
 
-void test_fcontext_list(void)
+static void test_fcontext_list(void)
 {
 	helper_fcontext_list_invalid();
 	helper_fcontext_list(SH_CONNECT);
@@ -764,11 +748,11 @@ void test_fcontext_list(void)
 }
 
 /* Function semanage_fcontext_modify_local, semanage_fcontext_del_local */
-void helper_fcontext_modify_del_local(level_t level, int fcontext_idx,
+static void helper_fcontext_modify_del_local(level_t level, int fcontext_idx,
 				      const char *con_str, int exp_res)
 {
 	semanage_fcontext_t *fcontext;
-	semanage_fcontext_t *fcontext_local;
+	semanage_fcontext_t *fcontext_local = NULL;
 	semanage_fcontext_key_t *key = NULL;
 	semanage_context_t *con = NULL;
 	int res;
@@ -803,6 +787,8 @@ void helper_fcontext_modify_del_local(level_t level, int fcontext_idx,
 					                &fcontext_local) >= 0);
 		CU_ASSERT(semanage_fcontext_compare2(fcontext_local,
 						     fcontext) == 0);
+		semanage_fcontext_free(fcontext_local);
+
 		CU_ASSERT(semanage_fcontext_del_local(sh, key) >= 0);
 		CU_ASSERT(semanage_fcontext_query_local(sh, key,
 					                &fcontext_local) < 0);
@@ -811,12 +797,13 @@ void helper_fcontext_modify_del_local(level_t level, int fcontext_idx,
 	}
 
 	/* cleanup */
+	semanage_context_free(con);
 	semanage_fcontext_key_free(key);
 	semanage_fcontext_free(fcontext);
 	cleanup_handle(level);
 }
 
-void test_fcontext_modify_del_local(void)
+static void test_fcontext_modify_del_local(void)
 {
 	helper_fcontext_modify_del_local(SH_CONNECT, I_FIRST,
 					 "system_u:object_r:tmp_t:s0", -1);
@@ -829,7 +816,7 @@ void test_fcontext_modify_del_local(void)
 }
 
 /* Function semanage_fcontext_query_local */
-void test_fcontext_query_local(void)
+static void test_fcontext_query_local(void)
 {
 	semanage_fcontext_key_t *key = NULL;
 	semanage_fcontext_t *resp = NULL;
@@ -846,6 +833,7 @@ void test_fcontext_query_local(void)
 	/* transaction */
 	setup_handle(SH_TRANS);
 
+	semanage_fcontext_key_free(key);
 	key = get_fcontext_key_nth(I_FIRST);
 	CU_ASSERT(semanage_fcontext_query_local(sh, key, &resp) < 0);
 	CU_ASSERT_PTR_NULL(resp);
@@ -853,21 +841,26 @@ void test_fcontext_query_local(void)
 	add_local_fcontext(I_FIRST);
 	CU_ASSERT(semanage_fcontext_query_local(sh, key, &resp) >= 0);
 	CU_ASSERT_PTR_NOT_NULL(resp);
+	semanage_fcontext_free(resp);
+	resp = NULL;
 
 	semanage_fcontext_key_free(key);
 	key = get_fcontext_key_nth(I_SECOND);
 	add_local_fcontext(I_SECOND);
 	CU_ASSERT(semanage_fcontext_query_local(sh, key, &resp) >= 0);
 	CU_ASSERT_PTR_NOT_NULL(resp);
+	semanage_fcontext_free(resp);
+	resp = NULL;
 
 	/* cleanup */
+	semanage_fcontext_key_free(key);
 	delete_local_fcontext(I_FIRST);
 	delete_local_fcontext(I_SECOND);
 	cleanup_handle(SH_TRANS);
 }
 
 /* Function semanage_fcontext_exists_local */
-void test_fcontext_exists_local(void)
+static void test_fcontext_exists_local(void)
 {
 	int resp = -1;
 	semanage_fcontext_key_t *key;
@@ -898,11 +891,12 @@ void test_fcontext_exists_local(void)
 	CU_ASSERT(resp == 0);
 
 	/* cleanup */
+	semanage_fcontext_key_free(key);
 	cleanup_handle(SH_TRANS);
 }
 
 /* Function semanage_fcontext_count_local */
-void test_fcontext_count_local(void)
+static void test_fcontext_count_local(void)
 {
 	unsigned int resp;
 
@@ -942,7 +936,7 @@ void test_fcontext_count_local(void)
 /* Function semanage_fcontext_iterate_local */
 unsigned int counter_fcontext_iterate_local = 0;
 
-int handler_fcontext_iterate_local(const semanage_fcontext_t *record,
+static int handler_fcontext_iterate_local(const semanage_fcontext_t *record,
 				   void *varg)
 {
 	CU_ASSERT_PTR_NOT_NULL(record);
@@ -950,7 +944,7 @@ int handler_fcontext_iterate_local(const semanage_fcontext_t *record,
 	return 0;
 }
 
-void test_fcontext_iterate_local(void)
+static void test_fcontext_iterate_local(void)
 {
 	/* handle */
 	setup_handle(SH_HANDLE);
@@ -999,7 +993,7 @@ void test_fcontext_iterate_local(void)
 }
 
 /* Function semanage_fcontext_list_local */
-void test_fcontext_list_local(void)
+static void test_fcontext_list_local(void)
 {
 	semanage_fcontext_t **records;
 	unsigned int count;
@@ -1031,12 +1025,17 @@ void test_fcontext_list_local(void)
 	CU_ASSERT(semanage_fcontext_list_local(sh, &records, &count) >= 0);
 	CU_ASSERT(count == 1);
 	CU_ASSERT_PTR_NOT_NULL(records[0]);
+	semanage_fcontext_free(records[0]);
+	free(records);
 
 	add_local_fcontext(I_SECOND);
 	CU_ASSERT(semanage_fcontext_list_local(sh, &records, &count) >= 0);
 	CU_ASSERT(count == 2);
 	CU_ASSERT_PTR_NOT_NULL(records[0]);
 	CU_ASSERT_PTR_NOT_NULL(records[1]);
+	semanage_fcontext_free(records[0]);
+	semanage_fcontext_free(records[1]);
+	free(records);
 
 	/* cleanup */
 	delete_local_fcontext(I_FIRST);

@@ -5,7 +5,14 @@
 
 #include <selinux.hpp>
 
-#define ALL nullptr
+using token_list = std::vector<const char *>;
+using argument = std::pair<token_list, bool>;
+using argument_list = std::vector<argument>;
+
+const argument &all_xperm();
+
+#define ALL       nullptr
+#define ALL_XPERM all_xperm()
 
 struct sepolicy {
     using c_str = const char *;
@@ -22,6 +29,7 @@ struct sepolicy {
     void parse_statement(c_str stmt) { parse_statement(stmt, strlen(stmt)); }
     void load_rules(const std::string &rules);
     void load_rule_file(c_str file);
+    void print_rules();
 
     // Operation on types
     bool type(c_str name, c_str attr);
@@ -38,9 +46,9 @@ struct sepolicy {
     bool dontaudit(c_str src, c_str tgt, c_str cls, c_str perm);
 
     // Extended permissions access vector rules
-    bool allowxperm(c_str src, c_str tgt, c_str cls, c_str range);
-    bool auditallowxperm(c_str src, c_str tgt, c_str cls, c_str range);
-    bool dontauditxperm(c_str src, c_str tgt, c_str cls, c_str range);
+    bool allowxperm(c_str src, c_str tgt, c_str cls, const argument &xperm);
+    bool auditallowxperm(c_str src, c_str tgt, c_str cls, const argument &xperm);
+    bool dontauditxperm(c_str src, c_str tgt, c_str cls, const argument &xperm);
 
     // Type rules
     bool type_transition(c_str src, c_str tgt, c_str cls, c_str def, c_str obj = nullptr);

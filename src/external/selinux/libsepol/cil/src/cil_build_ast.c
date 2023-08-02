@@ -56,7 +56,7 @@ struct cil_args_build {
 	struct cil_tree_node *boolif;
 };
 
-int cil_fill_list(struct cil_tree_node *current, enum cil_flavor flavor, struct cil_list **list)
+static int cil_fill_list(struct cil_tree_node *current, enum cil_flavor flavor, struct cil_list **list)
 {
 	int rc = SEPOL_ERR;
 	struct cil_tree_node *curr;
@@ -176,7 +176,7 @@ exit:
 	return rc;
 }
 
-void cil_clear_node(struct cil_tree_node *ast_node)
+static void cil_clear_node(struct cil_tree_node *ast_node)
 {
 	if (ast_node == NULL) {
 		return;
@@ -2141,7 +2141,7 @@ void cil_destroy_avrule(struct cil_avrule *rule)
 	free(rule);
 }
 
-int cil_fill_permissionx(struct cil_tree_node *parse_current, struct cil_permissionx *permx)
+static int cil_fill_permissionx(struct cil_tree_node *parse_current, struct cil_permissionx *permx)
 {
 	enum cil_syntax syntax[] = {
 		CIL_SYN_STRING,
@@ -2844,7 +2844,7 @@ exit:
 	return rc;
 }
 
-int cil_gen_constraint_expr(struct cil_tree_node *current, enum cil_flavor flavor, struct cil_list **expr)
+static int cil_gen_constraint_expr(struct cil_tree_node *current, enum cil_flavor flavor, struct cil_list **expr)
 {
 	int rc = SEPOL_ERR;
 
@@ -3583,7 +3583,7 @@ void cil_destroy_category(struct cil_cat *cat)
 	free(cat);
 }
 
-int cil_gen_catset(struct cil_db *db, struct cil_tree_node *parse_current, struct cil_tree_node *ast_node)
+static int cil_gen_catset(struct cil_db *db, struct cil_tree_node *parse_current, struct cil_tree_node *ast_node)
 {
 	enum cil_syntax syntax[] = {
 		CIL_SYN_STRING,
@@ -4229,7 +4229,9 @@ int cil_gen_filecon(struct cil_db *db, struct cil_tree_node *parse_current, stru
 
 	filecon->path_str = parse_current->next->data;
 
-	if (type == CIL_KEY_FILE) {
+	if (type == CIL_KEY_ANY) {
+		filecon->type = CIL_FILECON_ANY;
+	} else if (type == CIL_KEY_FILE) {
 		filecon->type = CIL_FILECON_FILE;
 	} else if (type == CIL_KEY_DIR) {
 		filecon->type = CIL_FILECON_DIR;
@@ -4243,8 +4245,6 @@ int cil_gen_filecon(struct cil_db *db, struct cil_tree_node *parse_current, stru
 		filecon->type = CIL_FILECON_PIPE;
 	} else if (type == CIL_KEY_SYMLINK) {
 		filecon->type = CIL_FILECON_SYMLINK;
-	} else if (type == CIL_KEY_ANY) {
-		filecon->type = CIL_FILECON_ANY;
 	} else {
 		cil_log(CIL_ERR, "Invalid file type\n");
 		rc = SEPOL_ERR;
@@ -4572,9 +4572,11 @@ int cil_gen_genfscon(struct cil_db *db, struct cil_tree_node *parse_current, str
 		CIL_SYN_STRING,
 		CIL_SYN_STRING,
 		CIL_SYN_STRING | CIL_SYN_LIST,
+		CIL_SYN_STRING | CIL_SYN_LIST | CIL_SYN_END,
 		CIL_SYN_END
 	};
 	size_t syntax_len = sizeof(syntax)/sizeof(*syntax);
+	struct cil_tree_node *context_node;
 	int rc = SEPOL_ERR;
 	struct cil_genfscon *genfscon = NULL;
 
@@ -4592,15 +4594,47 @@ int cil_gen_genfscon(struct cil_db *db, struct cil_tree_node *parse_current, str
 	genfscon->fs_str = parse_current->next->data;
 	genfscon->path_str = parse_current->next->next->data;
 
-	if (parse_current->next->next->next->cl_head == NULL ) {
-		genfscon->context_str = parse_current->next->next->next->data;
+	if (parse_current->next->next->next->next) {
+		/* (genfscon <FS_STR> <PATH_STR> <FILE_TYPE> ... */
+		char *file_type = parse_current->next->next->next->data;
+		if (file_type == CIL_KEY_ANY) {
+			genfscon->file_type = CIL_FILECON_ANY;
+		} else if (file_type == CIL_KEY_FILE) {
+			genfscon->file_type = CIL_FILECON_FILE;
+		} else if (file_type == CIL_KEY_DIR) {
+			genfscon->file_type = CIL_FILECON_DIR;
+		} else if (file_type == CIL_KEY_CHAR) {
+			genfscon->file_type = CIL_FILECON_CHAR;
+		} else if (file_type == CIL_KEY_BLOCK) {
+			genfscon->file_type = CIL_FILECON_BLOCK;
+		} else if (file_type == CIL_KEY_SOCKET) {
+			genfscon->file_type = CIL_FILECON_SOCKET;
+		} else if (file_type == CIL_KEY_PIPE) {
+			genfscon->file_type = CIL_FILECON_PIPE;
+		} else if (file_type == CIL_KEY_SYMLINK) {
+			genfscon->file_type = CIL_FILECON_SYMLINK;
+		} else {
+			if (parse_current->next->next->next->cl_head) {
+				cil_log(CIL_ERR, "Expecting file type, but found a list\n");
+			} else {
+				cil_log(CIL_ERR, "Invalid file type \"%s\"\n", file_type);
+			}
+			goto exit;
+		}
+		context_node = parse_current->next->next->next->next;
 	} else {
-		cil_context_init(&genfscon->context);
+		/* (genfscon <FS_STR> <PATH_STR> ... */
+		context_node = parse_current->next->next->next;
+	}
 
-		rc = cil_fill_context(parse_current->next->next->next->cl_head, genfscon->context);
+	if (context_node->cl_head) {
+		cil_context_init(&genfscon->context);
+		rc = cil_fill_context(context_node->cl_head, genfscon->context);
 		if (rc != SEPOL_OK) {
 			goto exit;
 		}
+	} else {
+		genfscon->context_str = context_node->data;
 	}
 
 	ast_node->data = genfscon;
@@ -5668,10 +5702,10 @@ int cil_fill_ipaddr(struct cil_tree_node *addr_node, struct cil_ipaddr *addr)
 		goto exit;
 	}
 
-	if (strchr(addr_node->data, '.') != NULL) {
-		addr->family = AF_INET;
-	} else {
+	if (strchr(addr_node->data, ':') != NULL) {
 		addr->family = AF_INET6;
+	} else {
+		addr->family = AF_INET;
 	}
 
 	rc = inet_pton(addr->family, addr_node->data, &addr->ip);
@@ -5683,7 +5717,7 @@ int cil_fill_ipaddr(struct cil_tree_node *addr_node, struct cil_ipaddr *addr)
 	return SEPOL_OK;
 
 exit:
-	cil_log(CIL_ERR, "Bad ip address or netmask\n"); 
+	cil_log(CIL_ERR, "Bad ip address or netmask: %s\n", (addr_node && addr_node->data) ? (const char *)addr_node->data : "n/a");
 	return rc;
 }
 
@@ -6441,7 +6475,7 @@ static struct cil_tree_node * parse_statement(struct cil_db *db, struct cil_tree
 	return new_ast_node;
 }
 
-int __cil_build_ast_node_helper(struct cil_tree_node *parse_current, uint32_t *finished, void *extra_args)
+static int __cil_build_ast_node_helper(struct cil_tree_node *parse_current, uint32_t *finished, void *extra_args)
 {
 	struct cil_args_build *args = extra_args;
 	struct cil_tree_node *new_ast_node = NULL;
@@ -6489,7 +6523,7 @@ int __cil_build_ast_node_helper(struct cil_tree_node *parse_current, uint32_t *f
 	return SEPOL_OK;
 }
 
-int __cil_build_ast_first_child_helper(__attribute__((unused)) struct cil_tree_node *parse_current, void *extra_args)
+static int __cil_build_ast_first_child_helper(__attribute__((unused)) struct cil_tree_node *parse_current, void *extra_args)
 {
 	struct cil_args_build *args = extra_args;
 	struct cil_tree_node *ast = args->ast;
@@ -6509,7 +6543,7 @@ int __cil_build_ast_first_child_helper(__attribute__((unused)) struct cil_tree_n
 	return SEPOL_OK;
 }
 
-int __cil_build_ast_last_child_helper(struct cil_tree_node *parse_current, void *extra_args)
+static int __cil_build_ast_last_child_helper(struct cil_tree_node *parse_current, void *extra_args)
 {
 	struct cil_args_build *args = extra_args;
 	struct cil_tree_node *ast = args->ast;

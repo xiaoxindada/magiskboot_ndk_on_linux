@@ -24,31 +24,31 @@
 #define USER_COUNT 3
 
 /* user_record.h */
-void test_user_compare(void);
-void test_user_compare2(void);
-void test_user_key_create(void);
-void test_user_key_extract(void);
-void test_user_get_set_name(void);
-void test_user_get_set_prefix(void);
-void test_user_get_set_mlslevel(void);
-void test_user_get_set_mlsrange(void);
-void test_user_roles(void);
-void test_user_create(void);
-void test_user_clone(void);
+static void test_user_compare(void);
+static void test_user_compare2(void);
+static void test_user_key_create(void);
+static void test_user_key_extract(void);
+static void test_user_get_set_name(void);
+static void test_user_get_set_prefix(void);
+static void test_user_get_set_mlslevel(void);
+static void test_user_get_set_mlsrange(void);
+static void test_user_roles(void);
+static void test_user_create(void);
+static void test_user_clone(void);
 
 /* users_policy.h */
-void test_user_query(void);
-void test_user_exists(void);
-void test_user_count(void);
-void test_user_iterate(void);
-void test_user_list(void);
+static void test_user_query(void);
+static void test_user_exists(void);
+static void test_user_count(void);
+static void test_user_iterate(void);
+static void test_user_list(void);
 
 /* users_local.h */
-void test_user_modify_del_query_local(void);
-void test_user_exists_local(void);
-void test_user_count_local(void);
-void test_user_iterate_local(void);
-void test_user_list_local(void);
+static void test_user_modify_del_query_local(void);
+static void test_user_exists_local(void);
+static void test_user_count_local(void);
+static void test_user_iterate_local(void);
+static void test_user_list_local(void);
 
 extern semanage_handle_t *sh;
 
@@ -109,7 +109,7 @@ int user_add_tests(CU_pSuite suite)
 
 /* Helpers */
 
-semanage_user_t *get_user_nth(int idx)
+static semanage_user_t *get_user_nth(int idx)
 {
 	int res;
 	semanage_user_t **records;
@@ -130,10 +130,12 @@ semanage_user_t *get_user_nth(int idx)
 		if (i != (unsigned int) idx)
 			semanage_user_free(records[i]);
 
+	free(records);
+
 	return user;
 }
 
-semanage_user_key_t *get_user_key_nth(int idx)
+static semanage_user_key_t *get_user_key_nth(int idx)
 {
 	semanage_user_key_t *key;
 	semanage_user_t *user;
@@ -149,10 +151,12 @@ semanage_user_key_t *get_user_key_nth(int idx)
 	CU_ASSERT_FATAL(res >= 0);
 	CU_ASSERT_PTR_NOT_NULL_FATAL(key);
 
+	semanage_user_free(user);
+
 	return key;
 }
 
-void add_local_user(int user_idx)
+static void add_local_user(int user_idx)
 {
 	semanage_user_t *user;
 	semanage_user_key_t *key = NULL;
@@ -165,9 +169,12 @@ void add_local_user(int user_idx)
 	CU_ASSERT_PTR_NOT_NULL_FATAL(key);
 
 	CU_ASSERT_FATAL(semanage_user_modify_local(sh, key, user) >= 0);
+
+	semanage_user_key_free(key);
+	semanage_user_free(user);
 }
 
-void delete_local_user(int user_idx)
+static void delete_local_user(int user_idx)
 {
 	semanage_user_key_t *key = NULL;
 
@@ -176,10 +183,12 @@ void delete_local_user(int user_idx)
 	key = get_user_key_nth(user_idx);
 
 	CU_ASSERT_FATAL(semanage_user_del_local(sh, key) >= 0);
+
+	semanage_user_key_free(key);
 }
 
 /* Function semanage_user_compare */
-void test_user_compare(void)
+static void test_user_compare(void)
 {
 	semanage_user_t *user = NULL;
 	semanage_user_key_t *key1 = NULL;
@@ -206,7 +215,7 @@ void test_user_compare(void)
 }
 
 /* Function semanage_user_compare2 */
-void test_user_compare2(void)
+static void test_user_compare2(void)
 {
 	semanage_user_t *user1 = NULL;
 	semanage_user_t *user2 = NULL;
@@ -233,7 +242,7 @@ void test_user_compare2(void)
 }
 
 /* Function semanage_user_key_create */
-void test_user_key_create(void)
+static void test_user_key_create(void)
 {
 	semanage_user_key_t *key = NULL;
 
@@ -250,7 +259,7 @@ void test_user_key_create(void)
 }
 
 /* Function semanage_user_key_extract */
-void test_user_key_extract(void)
+static void test_user_key_extract(void)
 {
 	semanage_user_t *user = NULL;
 	semanage_user_key_t *key = NULL;
@@ -270,7 +279,7 @@ void test_user_key_extract(void)
 }
 
 /* Function semanage_user_get_name, semanage_user_set_name */
-void test_user_get_set_name(void)
+static void test_user_get_set_name(void)
 {
 	semanage_user_t *user = NULL;
 
@@ -288,7 +297,7 @@ void test_user_get_set_name(void)
 }
 
 /* Function semanage_user_get_prefix, semanage_user_set_prefix */
-void test_user_get_set_prefix(void)
+static void test_user_get_set_prefix(void)
 {
 	semanage_user_t *user = NULL;
 
@@ -306,7 +315,7 @@ void test_user_get_set_prefix(void)
 }
 
 /* Function semanage_user_get_mlslevel, semanage_user_set_mlslevel */
-void test_user_get_set_mlslevel(void)
+static void test_user_get_set_mlslevel(void)
 {
 	semanage_user_t *user = NULL;
 
@@ -324,7 +333,7 @@ void test_user_get_set_mlslevel(void)
 }
 
 /* Function semanage_user_get_mlsrange, semanage_user_set_mlsrange */
-void test_user_get_set_mlsrange(void)
+static void test_user_get_set_mlsrange(void)
 {
 	semanage_user_t *user = NULL;
 
@@ -345,7 +354,7 @@ void test_user_get_set_mlsrange(void)
  * semanage_user_del_role, semanage_user_has_role, semanage_user_get_roles
  * semanage_user_set_roles
  */
-void test_user_roles(void)
+static void test_user_roles(void)
 {
 	semanage_user_t *user = NULL;
 	const char **roles_arr = NULL;
@@ -391,12 +400,13 @@ void test_user_roles(void)
 	CU_ASSERT(semanage_user_get_num_roles(user) == 0);
 
 	/* cleanup */
+	free(roles_arr);
 	semanage_user_free(user);
 	cleanup_handle(SH_CONNECT);
 }
 
 /* Function semanage_user_create */
-void test_user_create(void)
+static void test_user_create(void)
 {
 	semanage_user_t *user = NULL;
 
@@ -416,7 +426,7 @@ void test_user_create(void)
 }
 
 /* Function semanage_user_clone */
-void test_user_clone(void)
+static void test_user_clone(void)
 {
 	semanage_user_t *user = NULL;
 	semanage_user_t *user_clone = NULL;
@@ -443,7 +453,7 @@ void test_user_clone(void)
 }
 
 /* Function semanage_user_query */
-void test_user_query(void)
+static void test_user_query(void)
 {
 	semanage_user_t *user = NULL;
 	semanage_user_key_t *key = NULL;
@@ -459,12 +469,13 @@ void test_user_query(void)
 	CU_ASSERT_PTR_NOT_NULL(user);
 
 	/* cleanup */
+	semanage_user_key_free(key);
 	semanage_user_free(user);
 	cleanup_handle(SH_CONNECT);
 }
 
 /* Function semanage_user_exists */
-void test_user_exists(void)
+static void test_user_exists(void)
 {
 	semanage_user_key_t *key1 = NULL;
 	semanage_user_key_t *key2 = NULL;
@@ -488,7 +499,7 @@ void test_user_exists(void)
 }
 
 /* Function semanage_user_count */
-void test_user_count(void)
+static void test_user_count(void)
 {
 	unsigned int count = 42;
 
@@ -506,13 +517,13 @@ void test_user_count(void)
 /* Function semanage_user_iterate */
 unsigned int counter_user_iterate = 0;
 
-int handler_user_iterate(const semanage_user_t *record, void *varg)
+static int handler_user_iterate(const semanage_user_t *record, void *varg)
 {
 	counter_user_iterate++;
 	return 0;
 }
 
-void test_user_iterate(void)
+static void test_user_iterate(void)
 {
 	/* setup */
 	setup_handle(SH_CONNECT);
@@ -526,7 +537,7 @@ void test_user_iterate(void)
 }
 
 /* Function semanage_user_list */
-void test_user_list(void)
+static void test_user_list(void)
 {
 	semanage_user_t **records = NULL;
 	unsigned int count = 42;
@@ -546,13 +557,15 @@ void test_user_list(void)
 	for (unsigned int i = 0; i < count; i++)
 		semanage_user_free(records[i]);
 
+	free(records);
+
 	cleanup_handle(SH_CONNECT);
 }
 
 /* Function semanage_user_modify_local, semanage_user_del_local,
  * semanage_user_query_local
  */
-void test_user_modify_del_query_local(void)
+static void test_user_modify_del_query_local(void)
 {
 	semanage_user_t *user;
 	semanage_user_t *user_local;
@@ -573,16 +586,18 @@ void test_user_modify_del_query_local(void)
 
 	CU_ASSERT(semanage_user_query_local(sh, key, &user_local) >= 0);
 	CU_ASSERT_PTR_NOT_NULL_FATAL(user_local);
+	semanage_user_free(user_local);
 	CU_ASSERT(semanage_user_del_local(sh, key) >= 0);
 	CU_ASSERT(semanage_user_query_local(sh, key, &user_local) < 0);
 
 	/* cleanup */
+	semanage_user_key_free(key);
 	semanage_user_free(user);
 	cleanup_handle(SH_TRANS);
 }
 
 /* Function semanage_user_exists_local */
-void test_user_exists_local(void)
+static void test_user_exists_local(void)
 {
 	semanage_user_t *user = NULL;
 	semanage_user_key_t *key1 = NULL;
@@ -611,7 +626,7 @@ void test_user_exists_local(void)
 }
 
 /* Function semanage_user_count_local */
-void test_user_count_local(void)
+static void test_user_count_local(void)
 {
 	unsigned int count = 42;
 
@@ -635,13 +650,13 @@ void test_user_count_local(void)
 /* Function semanage_user_iterate_local */
 unsigned int counter_user_iterate_local = 0;
 
-int handler_user_iterate_local(const semanage_user_t *record, void *varg)
+static int handler_user_iterate_local(const semanage_user_t *record, void *varg)
 {
 	counter_user_iterate_local++;
 	return 0;
 }
 
-void test_user_iterate_local(void)
+static void test_user_iterate_local(void)
 {
 	/* setup */
 	setup_handle(SH_TRANS);
@@ -661,7 +676,7 @@ void test_user_iterate_local(void)
 }
 
 /* Function semanage_user_list_local */
-void test_user_list_local(void)
+static void test_user_list_local(void)
 {
 	semanage_user_t **records = NULL;
 	unsigned int count = 42;
@@ -682,6 +697,8 @@ void test_user_list_local(void)
 	/* cleanup */
 	for (unsigned int i = 0; i < count; i++)
 		semanage_user_free(records[i]);
+
+	free(records);
 
 	delete_local_user(I_FIRST);
 	delete_local_user(I_SECOND);

@@ -2,6 +2,8 @@
 
 #include "policy.hpp"
 
+using namespace std;
+
 // Invert is adding rules for auditdeny; in other cases, invert is removing rules
 #define strip_av(effect, invert) ((effect == AVTAB_AUDITDENY) == !invert)
 
@@ -15,6 +17,11 @@ int context_from_string(
         const policydb_t * policydb,
         context_struct_t ** cptr,
         const char *con_str, size_t con_str_len);
+int context_to_string(
+        sepol_handle_t * handle,
+        const policydb_t * policydb,
+        const context_struct_t * context,
+        char **result, size_t * result_len);
 __END_DECLS
 
 template <typename T>
@@ -37,11 +44,19 @@ static auto hashtab_find(hashtab_t h, const_hashtab_key_t key) {
 }
 
 template <class Node, class Func>
+static void list_for_each(Node *node_ptr, const Func &fn) {
+    auto cur = node_ptr;
+    while (cur) {
+        auto next = cur->next;
+        fn(cur);
+        cur = next;
+    }
+}
+
+template <class Node, class Func>
 static void hash_for_each(Node **node_ptr, int n_slot, const Func &fn) {
     for (int i = 0; i < n_slot; ++i) {
-        for (Node *cur = node_ptr[i]; cur; cur = cur->next) {
-            fn(cur);
-        }
+        list_for_each(node_ptr[i], fn);
     }
 }
 
@@ -101,38 +116,42 @@ static bool is_redundant(avtab_ptr_t node) {
     }
 }
 
-avtab_ptr_t sepol_impl::get_avtab_node(avtab_key_t *key, avtab_extended_perms_t *xperms) {
+avtab_ptr_t sepol_impl::find_avtab_node(avtab_key_t *key, avtab_extended_perms_t *xperms) {
     avtab_ptr_t node;
 
-    /* AVTAB_XPERMS entries are not necessarily unique */
+    // AVTAB_XPERMS entries are not necessarily unique
     if (key->specified & AVTAB_XPERMS) {
-        bool match = false;
+        if (xperms == nullptr)
+            return nullptr;
         node = avtab_search_node(&db->te_avtab, key);
         while (node) {
             if ((node->datum.xperms->specified == xperms->specified) &&
                 (node->datum.xperms->driver == xperms->driver)) {
-                match = true;
+                node = nullptr;
                 break;
             }
             node = avtab_search_node_next(node, key->specified);
         }
-        if (!match)
-            node = nullptr;
     } else {
         node = avtab_search_node(&db->te_avtab, key);
     }
 
-    if (!node) {
-        avtab_datum_t avdatum{};
-        /*
-         * AUDITDENY, aka DONTAUDIT, are &= assigned, versus |= for
-         * others. Initialize the data accordingly.
-         */
-        avdatum.data = key->specified == AVTAB_AUDITDENY ? ~0U : 0U;
-        /* this is used to get the node - insertion is actually unique */
-        node = avtab_insert_nonunique(&db->te_avtab, key, &avdatum);
-    }
+    return node;
+}
 
+avtab_ptr_t sepol_impl::insert_avtab_node(avtab_key_t *key) {
+    avtab_datum_t avdatum{};
+    // AUDITDENY, aka DONTAUDIT, are &= assigned, versus |= for others.
+    // Initialize the data accordingly.
+    avdatum.data = key->specified == AVTAB_AUDITDENY ? ~0U : 0U;
+    return avtab_insert_nonunique(&db->te_avtab, key, &avdatum);
+}
+
+avtab_ptr_t sepol_impl::get_avtab_node(avtab_key_t *key, avtab_extended_perms_t *xperms) {
+    avtab_ptr_t node = find_avtab_node(key, xperms);
+    if (!node) {
+        node = insert_avtab_node(key);
+    }
     return node;
 }
 
@@ -239,19 +258,18 @@ bool sepol_impl::add_rule(const char *s, const char *t, const char *c, const cha
 #define ioctl_driver(x) (x>>8 & 0xFF)
 #define ioctl_func(x) (x & 0xFF)
 
-void sepol_impl::add_xperm_rule(type_datum_t *src, type_datum_t *tgt,
-        class_datum_t *cls, uint16_t low, uint16_t high, int effect, bool invert) {
+void sepol_impl::add_xperm_rule(type_datum_t *src, type_datum_t *tgt, class_datum_t *cls, const argument &xperm, int effect) {
     if (src == nullptr) {
         for_each_attr(db->p_types.table, [&](type_datum_t *type) {
-            add_xperm_rule(type, tgt, cls, low, high, effect, invert);
+            add_xperm_rule(type, tgt, cls, xperm, effect);
         });
     } else if (tgt == nullptr) {
         for_each_attr(db->p_types.table, [&](type_datum_t *type) {
-            add_xperm_rule(src, type, cls, low, high, effect, invert);
+            add_xperm_rule(src, type, cls, xperm, effect);
         });
     } else if (cls == nullptr) {
         hashtab_for_each(db->p_classes.table, [&](hashtab_ptr_t node) {
-            add_xperm_rule(src, tgt, auto_cast(node->datum), low, high, effect, invert);
+            add_xperm_rule(src, tgt, auto_cast(node->datum), xperm, effect);
         });
     } else {
         avtab_key_t key;
@@ -260,46 +278,130 @@ void sepol_impl::add_xperm_rule(type_datum_t *src, type_datum_t *tgt,
         key.target_class = cls->s.value;
         key.specified = effect;
 
-        avtab_datum_t *datum;
-        avtab_extended_perms_t xperms;
+        // Each key may contain 1 driver node and 256 function nodes
+        avtab_ptr_t node_list[257] = { nullptr };
+#define driver_node (node_list[256])
 
-        memset(&xperms, 0, sizeof(xperms));
-        if (ioctl_driver(low) != ioctl_driver(high)) {
-            xperms.specified = AVTAB_XPERMS_IOCTLDRIVER;
-            xperms.driver = 0;
-        } else {
-            xperms.specified = AVTAB_XPERMS_IOCTLFUNCTION;
-            xperms.driver = ioctl_driver(low);
+        // Find all rules with key
+        for (avtab_ptr_t node = avtab_search_node(&db->te_avtab, &key); node;) {
+            if (node->datum.xperms->specified == AVTAB_XPERMS_IOCTLDRIVER) {
+                driver_node = node;
+            } else if (node->datum.xperms->specified == AVTAB_XPERMS_IOCTLFUNCTION) {
+                node_list[node->datum.xperms->driver] = node;
+            }
+            node = avtab_search_node_next(node, key.specified);
         }
 
-        datum = &get_avtab_node(&key, &xperms)->datum;
-        if (datum->xperms != nullptr)
-            memcpy(xperms.perms, datum->xperms->perms, sizeof(xperms.perms));
+        bool reset = xperm.second;
+        vector<pair<uint16_t, uint16_t>> ranges;
 
-        if (xperms.specified == AVTAB_XPERMS_IOCTLDRIVER) {
-            for (int i = ioctl_driver(low); i <= ioctl_driver(high); ++i) {
-                if (invert)
-                    xperm_clear(i, xperms.perms);
-                else
-                    xperm_set(i, xperms.perms);
+        for (const char *tok : xperm.first) {
+            uint16_t low = 0;
+            uint16_t high = 0;
+            if (tok == nullptr) {
+                low = 0x0000;
+                high = 0xFF00;
+                reset = true;
+            } else if (strchr(tok, '-')) {
+                if (sscanf(tok, "%hx-%hx", &low, &high) != 2) {
+                    // Invalid token, skip
+                    continue;
+                }
+            } else {
+                if (sscanf(tok, "%hx", &low) != 1) {
+                    // Invalid token, skip
+                    continue;
+                }
+                high = low;
             }
-        } else {
-            for (int i = ioctl_func(low); i <= ioctl_func(high); ++i) {
-                if (invert)
-                    xperm_clear(i, xperms.perms);
-                else
-                    xperm_set(i, xperms.perms);
+            if (high == 0) {
+                reset = true;
+            } else {
+                ranges.emplace_back(make_pair(low, high));
             }
         }
 
-        if (datum->xperms == nullptr)
-            datum->xperms = auto_cast(malloc(sizeof(xperms)));
+        if (reset) {
+            for (int i = 0; i <= 0xFF; ++i) {
+                if (node_list[i]) {
+                    avtab_remove_node(&db->te_avtab, node_list[i]);
+                    node_list[i] = nullptr;
+                }
+            }
+            if (driver_node) {
+                memset(driver_node->datum.xperms->perms, 0, sizeof(avtab_extended_perms_t::perms));
+            }
+        }
 
-        memcpy(datum->xperms, &xperms, sizeof(xperms));
+        auto new_driver_node = [&]() -> avtab_ptr_t {
+            auto node = insert_avtab_node(&key);
+            node->datum.xperms = auto_cast(calloc(1, sizeof(avtab_extended_perms_t)));
+            node->datum.xperms->specified = AVTAB_XPERMS_IOCTLDRIVER;
+            node->datum.xperms->driver = 0;
+            return node;
+        };
+
+        auto new_func_node = [&](uint8_t driver) -> avtab_ptr_t {
+            auto node = insert_avtab_node(&key);
+            node->datum.xperms = auto_cast(calloc(1, sizeof(avtab_extended_perms_t)));
+            node->datum.xperms->specified = AVTAB_XPERMS_IOCTLFUNCTION;
+            node->datum.xperms->driver = driver;
+            return node;
+        };
+
+        if (!xperm.second) {
+            for (auto [low, high] : ranges) {
+                if (ioctl_driver(low) != ioctl_driver(high)) {
+                    if (driver_node == nullptr) {
+                        driver_node = new_driver_node();
+                    }
+                    for (int i = ioctl_driver(low); i <= ioctl_driver(high); ++i) {
+                        xperm_set(i, driver_node->datum.xperms->perms);
+                    }
+                } else {
+                    uint8_t driver = ioctl_driver(low);
+                    auto node = node_list[driver];
+                    if (node == nullptr) {
+                        node = new_func_node(driver);
+                        node_list[driver] = node;
+                    }
+                    for (int i = ioctl_func(low); i <= ioctl_func(high); ++i) {
+                        xperm_set(i, node->datum.xperms->perms);
+                    }
+                }
+            }
+        } else {
+            if (driver_node == nullptr) {
+                driver_node = new_driver_node();
+            }
+            // Fill the driver perms
+            memset(driver_node->datum.xperms->perms, ~0, sizeof(avtab_extended_perms_t::perms));
+
+            for (auto [low, high] : ranges) {
+                if (ioctl_driver(low) != ioctl_driver(high)) {
+                    for (int i = ioctl_driver(low); i <= ioctl_driver(high); ++i) {
+                        xperm_clear(i, driver_node->datum.xperms->perms);
+                    }
+                } else {
+                    uint8_t driver = ioctl_driver(low);
+                    auto node = node_list[driver];
+                    if (node == nullptr) {
+                        node = new_func_node(driver);
+                        // Fill the func perms
+                        memset(node->datum.xperms->perms, ~0, sizeof(avtab_extended_perms_t::perms));
+                        node_list[driver] = node;
+                    }
+                    xperm_clear(driver, driver_node->datum.xperms->perms);
+                    for (int i = ioctl_func(low); i <= ioctl_func(high); ++i) {
+                        xperm_clear(i, node->datum.xperms->perms);
+                    }
+                }
+            }
+        }
     }
 }
 
-bool sepol_impl::add_xperm_rule(const char *s, const char *t, const char *c, const char *range, int effect, bool invert) {
+bool sepol_impl::add_xperm_rule(const char *s, const char *t, const char *c, const argument &xperm, int effect) {
     type_datum_t *src = nullptr, *tgt = nullptr;
     class_datum_t *cls = nullptr;
 
@@ -327,21 +429,7 @@ bool sepol_impl::add_xperm_rule(const char *s, const char *t, const char *c, con
         }
     }
 
-    uint16_t low, high;
-
-    if (range) {
-        if (strchr(range, '-')){
-            sscanf(range, "%hx-%hx", &low, &high);
-        } else {
-            sscanf(range, "%hx", &low);
-            high = low;
-        }
-    } else {
-        low = 0;
-        high = 0xFFFF;
-    }
-
-    add_xperm_rule(src, tgt, cls, low, high, effect, invert);
+    add_xperm_rule(src, tgt, cls, xperm, effect);
     return true;
 }
 
@@ -569,14 +657,14 @@ void sepol_impl::add_typeattribute(type_datum_t *type, type_datum_t *attr) {
 
     hashtab_for_each(db->p_classes.table, [&](hashtab_ptr_t node){
         auto cls = static_cast<class_datum_t *>(node->datum);
-        for (constraint_node_t *n = cls->constraints; n ; n = n->next) {
-            for (constraint_expr_t *e = n->expr; e; e = e->next) {
+        list_for_each(cls->constraints, [&](constraint_node_t *n) {
+            list_for_each(n->expr, [&](constraint_expr_t *e) {
                 if (e->expr_type == CEXPR_NAMES &&
                     ebitmap_get_bit(&e->type_names->types, attr->s.value - 1)) {
                     ebitmap_set_bit(&e->names, type->s.value - 1, 1);
                 }
-            }
-        }
+            });
+        });
     });
 }
 
@@ -608,4 +696,224 @@ void sepol_impl::strip_dontaudit() {
         if (node->key.specified == AVTAB_AUDITDENY || node->key.specified == AVTAB_XPERMS_DONTAUDIT)
             avtab_remove_node(&db->te_avtab, node);
     });
+}
+
+void sepolicy::print_rules() {
+    hashtab_for_each(impl->db->p_types.table, [&](hashtab_ptr_t node) {
+        type_datum_t *type = auto_cast(node->datum);
+        if (type->flavor == TYPE_ATTRIB) {
+            impl->print_type(stdout, type);
+        }
+    });
+    hashtab_for_each(impl->db->p_types.table, [&](hashtab_ptr_t node) {
+        type_datum_t *type = auto_cast(node->datum);
+        if (type->flavor == TYPE_TYPE) {
+            impl->print_type(stdout, type);
+        }
+    });
+    avtab_for_each(&impl->db->te_avtab, [&](avtab_ptr_t node) {
+        impl->print_avtab(stdout, node);
+    });
+    hashtab_for_each(impl->db->filename_trans, [&](hashtab_ptr_t node) {
+        impl->print_filename_trans(stdout, node);
+    });
+    list_for_each(impl->db->genfs, [&](genfs_t *genfs) {
+        list_for_each(genfs->head, [&](ocontext *context) {
+            char *ctx = nullptr;
+            size_t len = 0;
+            if (context_to_string(nullptr, impl->db, &context->context[0], &ctx, &len) == 0) {
+                fprintf(stdout, "genfscon %s %s %s\n", genfs->fstype, context->u.name, ctx);
+                free(ctx);
+            }
+        });
+    });
+}
+
+void sepol_impl::print_type(FILE *fp, type_datum_t *type) {
+    if (type->flavor == TYPE_ATTRIB) {
+        if (const char *attr = db->p_type_val_to_name[type->s.value - 1]) {
+            fprintf(fp, "attribute %s\n", attr);
+        }
+    } else if (type->flavor == TYPE_TYPE) {
+        if (const char *name = db->p_type_val_to_name[type->s.value - 1]) {
+            bool first = true;
+            ebitmap_t *bitmap = &db->type_attr_map[type->s.value - 1];
+            for (uint32_t i = 0; i <= bitmap->highbit; ++i) {
+                if (ebitmap_get_bit(bitmap, i)) {
+                    auto attr_type = db->type_val_to_struct[i];
+                    if (attr_type->flavor == TYPE_ATTRIB) {
+                        if (const char *attr = db->p_type_val_to_name[i]) {
+                            if (first) {
+                                fprintf(fp, "type %s {", name);
+                                first = false;
+                            }
+                            fprintf(fp, " %s", attr);
+                        }
+                    }
+                }
+            }
+            if (!first) {
+                fprintf(fp, " }\n");
+            }
+        }
+    }
+}
+
+void sepol_impl::print_avtab(FILE *fp, avtab_ptr_t node) {
+    const char *src = db->p_type_val_to_name[node->key.source_type - 1];
+    const char *tgt = db->p_type_val_to_name[node->key.target_type - 1];
+    const char *cls = db->p_class_val_to_name[node->key.target_class - 1];
+    if (src == nullptr || tgt == nullptr || cls == nullptr)
+        return;
+
+    if (node->key.specified & AVTAB_AV) {
+        uint32_t data = node->datum.data;
+        const char *name;
+        switch (node->key.specified) {
+            case AVTAB_ALLOWED:
+                name = "allow";
+                break;
+            case AVTAB_AUDITALLOW:
+                name = "auditallow";
+                break;
+            case AVTAB_AUDITDENY:
+                name = "dontaudit";
+                // Invert the rules for dontaudit
+                data = ~data;
+                break;
+            default:
+                return;
+        }
+
+        class_datum_t *clz = db->class_val_to_struct[node->key.target_class - 1];
+        if (clz == nullptr)
+            return;
+
+        auto it = class_perm_names.find(cls);
+        if (it == class_perm_names.end()) {
+            it = class_perm_names.try_emplace(cls).first;
+            // Find all permission names and cache the value
+            hashtab_for_each(clz->permissions.table, [&](hashtab_ptr_t node) {
+                perm_datum_t *perm = auto_cast(node->datum);
+                it->second[perm->s.value - 1] = node->key;
+            });
+            if (clz->comdatum) {
+                hashtab_for_each(clz->comdatum->permissions.table, [&](hashtab_ptr_t node) {
+                    perm_datum_t *perm = auto_cast(node->datum);
+                    it->second[perm->s.value - 1] = node->key;
+                });
+            }
+        }
+
+        bool first = true;
+        for (int i = 0; i < 32; ++i) {
+            if (data & (1u << i)) {
+                if (const char *perm = it->second[i]) {
+                    if (first) {
+                        fprintf(fp, "%s %s %s %s {", name, src, tgt, cls);
+                        first = false;
+                    }
+                    fprintf(fp, " %s", perm);
+                }
+            }
+        }
+        if (!first) {
+            fprintf(fp, " }\n");
+        }
+    } else if (node->key.specified & AVTAB_TYPE) {
+        const char *name;
+        switch (node->key.specified) {
+            case AVTAB_TRANSITION:
+                name = "type_transition";
+                break;
+            case AVTAB_MEMBER:
+                name = "type_member";
+                break;
+            case AVTAB_CHANGE:
+                name = "type_change";
+                break;
+            default:
+                return;
+        }
+        if (const char *def = db->p_type_val_to_name[node->datum.data - 1]) {
+            fprintf(fp, "%s %s %s %s %s\n", name, src, tgt, cls, def);
+        }
+    } else if (node->key.specified & AVTAB_XPERMS) {
+        const char *name;
+        switch (node->key.specified) {
+            case AVTAB_XPERMS_ALLOWED:
+                name = "allowxperm";
+                break;
+            case AVTAB_XPERMS_AUDITALLOW:
+                name = "auditallowxperm";
+                break;
+            case AVTAB_XPERMS_DONTAUDIT:
+                name = "dontauditxperm";
+                break;
+            default:
+                return;
+        }
+        avtab_extended_perms_t *xperms = node->datum.xperms;
+        if (xperms == nullptr)
+            return;
+
+        vector<pair<uint8_t, uint8_t>> ranges;
+        {
+            int low = -1;
+            for (int i = 0; i < 256; ++i) {
+                if (xperm_test(i, xperms->perms)) {
+                    if (low < 0) {
+                        low = i;
+                    }
+                    if (i == 255) {
+                        ranges.emplace_back(low, 255);
+                    }
+                } else if (low >= 0) {
+                    ranges.emplace_back(low, i - 1);
+                    low = -1;
+                }
+            }
+        }
+
+        auto to_value = [&](uint8_t val) -> uint16_t {
+            if (xperms->specified == AVTAB_XPERMS_IOCTLFUNCTION) {
+                return (((uint16_t) xperms->driver) << 8) | val;
+            } else {
+                return ((uint16_t) val) << 8;
+            }
+        };
+
+        if (!ranges.empty()) {
+            fprintf(fp, "%s %s %s %s ioctl {", name, src, tgt, cls);
+            for (auto [l, h] : ranges) {
+                uint16_t low = to_value(l);
+                uint16_t high = to_value(h);
+                if (low == high) {
+                    fprintf(fp, " 0x%04X", low);
+                } else {
+                    fprintf(fp, " 0x%04X-0x%04X", low, high);
+                }
+            }
+            fprintf(fp, " }\n");
+        }
+    }
+}
+
+void sepol_impl::print_filename_trans(FILE *fp, hashtab_ptr_t node) {
+    auto key = reinterpret_cast<filename_trans_key_t *>(node->key);
+    filename_trans_datum_t *trans = auto_cast(node->datum);
+
+    const char *tgt = db->p_type_val_to_name[key->ttype - 1];
+    const char *cls = db->p_class_val_to_name[key->tclass - 1];
+    const char *def = db->p_type_val_to_name[trans->otype - 1];
+    if (tgt == nullptr || cls == nullptr || def == nullptr || key->name == nullptr)
+        return;
+
+    for (uint32_t i = 0; i <= trans->stypes.highbit; ++i) {
+        if (ebitmap_get_bit(&trans->stypes, i)) {
+            if (const char *src = db->p_type_val_to_name[i]) {
+                fprintf(fp, "type_transition %s %s %s %s %s\n", src, tgt, cls, def, key->name);
+            }
+        }
+    }
 }

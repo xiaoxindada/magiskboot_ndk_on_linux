@@ -18,6 +18,7 @@
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
+#include "test-linker-roles.h"
 #include "parse_util.h"
 #include "helpers.h"
 #include "test-common.h"
@@ -52,7 +53,7 @@
 
 /* this simply tests whether the passed in role only has its own 
  * value in its dominates ebitmap */
-static void only_dominates_self(policydb_t * p, role_datum_t * role)
+static void only_dominates_self(policydb_t * p __attribute__ ((unused)), role_datum_t * role)
 {
 	ebitmap_node_t *tnode;
 	unsigned int i;

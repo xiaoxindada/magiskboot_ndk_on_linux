@@ -99,6 +99,7 @@ int define_policy(int pass, int module_header_given)
 				yyerror("no module name");
 				return -1;
 			}
+			free(policydbp->name);
 			policydbp->name = id;
 			if ((policydbp->version =
 			     queue_remove(id_queue)) == NULL) {
@@ -847,6 +848,14 @@ int require_class(int pass)
 				yyerror2
 				    ("Base policy - require of permission %s without prior declaration.",
 				     perm_id);
+				free(perm_id);
+				return -1;
+			}
+			if (datum->permissions.nprim >= PERM_SYMTAB_SIZE) {
+				yyerror2("Class %s would have too many permissions "
+					 "to fit in an access vector with permission %s",
+					 policydbp->p_class_val_to_name[datum->s.value - 1],
+					 perm_id);
 				free(perm_id);
 				return -1;
 			}

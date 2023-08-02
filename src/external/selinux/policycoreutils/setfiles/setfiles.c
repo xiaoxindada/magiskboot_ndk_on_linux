@@ -1,4 +1,5 @@
 #include "restore.h"
+#include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio_ext.h>
@@ -34,20 +35,20 @@ static __attribute__((__noreturn__)) void usage(const char *const name)
 {
 	if (iamrestorecon) {
 		fprintf(stderr,
-			"usage:  %s [-iIDFmnprRv0x] [-e excludedir] pathname...\n"
-			"usage:  %s [-iIDFmnprRv0x] [-e excludedir] -f filename\n",
+			"usage:  %s [-iIDFmnprRv0xT] [-e excludedir] pathname...\n"
+			"usage:  %s [-iIDFmnprRv0xT] [-e excludedir] -f filename\n",
 			name, name);
 	} else {
 		fprintf(stderr,
-			"usage:  %s [-diIDlmnpqvEFW] [-e excludedir] [-r alt_root_path] [-c policyfile] spec_file pathname...\n"
-			"usage:  %s [-diIDlmnpqvEFW] [-e excludedir] [-r alt_root_path] [-c policyfile] spec_file -f filename\n"
-			"usage:  %s -s [-diIDlmnpqvFW] spec_file\n",
+			"usage:  %s [-diIDlmnpqvCEFWT] [-e excludedir] [-r alt_root_path] [-c policyfile] spec_file pathname...\n"
+			"usage:  %s [-diIDlmnpqvCEFWT] [-e excludedir] [-r alt_root_path] [-c policyfile] spec_file -f filename\n"
+			"usage:  %s -s [-diIDlmnpqvFWT] spec_file\n",
 			name, name, name);
 	}
 	exit(-1);
 }
 
-void set_rootpath(const char *arg)
+static void set_rootpath(const char *arg)
 {
 	if (strlen(arg) == 1 && strncmp(arg, "/", 1) == 0) {
 		fprintf(stderr, "%s:  invalid alt_rootpath: %s\n",
@@ -64,7 +65,7 @@ void set_rootpath(const char *arg)
 	}
 }
 
-int canoncon(char **contextp)
+static int canoncon(char **contextp)
 {
 	char *context = *contextp, *tmpcon;
 	int rc = 0;
@@ -144,14 +145,15 @@ int main(int argc, char **argv)
 	int opt, i = 0;
 	const char *input_filename = NULL;
 	int use_input_file = 0;
-	char *buf = NULL;
-	size_t buf_len;
+	char *buf = NULL, *endptr;
+	size_t buf_len, nthreads = 1;
 	const char *base;
 	int errors = 0;
-	const char *ropts = "e:f:hiIDlmno:pqrsvFRW0x";
-	const char *sopts = "c:de:f:hiIDlmno:pqr:svEFR:W0";
+	const char *ropts = "e:f:hiIDlmno:pqrsvFRW0xT:";
+	const char *sopts = "c:de:f:hiIDlmno:pqr:svCEFR:W0T:";
 	const char *opts;
 	union selinux_callback cb;
+	long unsigned skipped_errors;
 
 	/* Initialize variables */
 	memset(&r_opts, 0, sizeof(r_opts));
@@ -160,8 +162,12 @@ int main(int argc, char **argv)
 	warn_no_match = 0;
 	request_digest = 0;
 	policyfile = NULL;
+	skipped_errors = 0;
 
-	r_opts.abort_on_error = 0;
+	if (!argv[0]) {
+		fprintf(stderr, "Called without required program name!\n");
+		exit(-1);
+	}
 	r_opts.progname = strdup(argv[0]);
 	if (!r_opts.progname) {
 		fprintf(stderr, "%s:  Out of memory!\n", argv[0]);
@@ -192,7 +198,6 @@ int main(int argc, char **argv)
 		 * restorecon:
 		 * No recursive descent unless -r/-R,
 		 * Expands paths via realpath,
-		 * Do not abort on errors during the file tree walk,
 		 * Do not try to track inode associations for conflict detection,
 		 * Follows mounts,
 		 * Does lazy validation of contexts upon use.
@@ -223,9 +228,6 @@ int main(int argc, char **argv)
 		case 'c':
 			{
 				FILE *policystream;
-
-				if (iamrestorecon)
-					usage(argv[0]);
 
 				policyfile = optarg;
 
@@ -264,8 +266,6 @@ int main(int argc, char **argv)
 			input_filename = optarg;
 			break;
 		case 'd':
-			if (iamrestorecon)
-				usage(argv[0]);
 			r_opts.debug = 1;
 			r_opts.log_matches =
 					   SELINUX_RESTORECON_LOG_MATCHES;
@@ -289,6 +289,9 @@ int main(int argc, char **argv)
 		case 'l':
 			r_opts.syslog_changes =
 					   SELINUX_RESTORECON_SYSLOG_CHANGES;
+			break;
+		case 'C':
+			r_opts.count_errors = SELINUX_RESTORECON_COUNT_ERRORS;
 			break;
 		case 'E':
 			r_opts.conflict_error =
@@ -363,13 +366,14 @@ int main(int argc, char **argv)
 		case '0':
 			null_terminated = 1;
 			break;
-                case 'x':
-                        if (iamrestorecon) {
-				r_opts.xdev = SELINUX_RESTORECON_XDEV;
-                        } else {
+		case 'x':
+			r_opts.xdev = SELINUX_RESTORECON_XDEV;
+			break;
+		case 'T':
+			nthreads = strtoull(optarg, &endptr, 10);
+			if (*optarg == '\0' || *endptr != '\0')
 				usage(argv[0]);
-                        }
-                        break;
+			break;
 		case 'h':
 		case '?':
 			usage(argv[0]);
@@ -417,7 +421,7 @@ int main(int argc, char **argv)
 
 		altpath = argv[optind];
 		optind++;
-	} else if (argc == 1)
+	} else if (argc < 2)
 		usage(argv[0]);
 
 	/* Set selabel_open options. */
@@ -448,13 +452,15 @@ int main(int argc, char **argv)
 			buf[len - 1] = 0;
 			if (!strcmp(buf, "/"))
 				r_opts.mass_relabel = SELINUX_RESTORECON_MASS_RELABEL;
-			errors |= process_glob(buf, &r_opts) < 0;
+			errors |= process_glob(buf, &r_opts, nthreads,
+					       &skipped_errors) < 0;
 		}
 		if (strcmp(input_filename, "-") != 0)
 			fclose(f);
 	} else {
 		for (i = optind; i < argc; i++)
-			errors |= process_glob(argv[i], &r_opts) < 0;
+			errors |= process_glob(argv[i], &r_opts, nthreads,
+					       &skipped_errors) < 0;
 	}
 
 	maybe_audit_mass_relabel(r_opts.mass_relabel, errors);
@@ -468,5 +474,5 @@ int main(int argc, char **argv)
 	if (r_opts.progress)
 		fprintf(stdout, "\n");
 
-	exit(errors ? -1 : 0);
+	exit(errors ? -1 : skipped_errors ? 1 : 0);
 }

@@ -19,10 +19,12 @@
  */
 
 #include "test-cond.h"
+#include "test-ebitmap.h"
 #include "test-linker.h"
 #include "test-expander.h"
 #include "test-deps.h"
 #include "test-downgrade.h"
+#include "test-neverallow.h"
 
 #include <CUnit/Basic.h>
 #include <CUnit/Console.h>
@@ -64,11 +66,13 @@ static bool do_tests(int interactive, int verbose)
 	if (CUE_SUCCESS != CU_initialize_registry())
 		return CU_get_error();
 
+	DECLARE_SUITE(ebitmap);
 	DECLARE_SUITE(cond);
 	DECLARE_SUITE(linker);
 	DECLARE_SUITE(expander);
 	DECLARE_SUITE(deps);
 	DECLARE_SUITE(downgrade);
+	DECLARE_SUITE(neverallow);
 
 	if (verbose)
 		CU_basic_set_mode(CU_BRM_VERBOSE);

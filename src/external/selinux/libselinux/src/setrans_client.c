@@ -66,7 +66,13 @@ static int setransd_open(void)
 
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, SETRANS_UNIX_SOCKET, sizeof(addr.sun_path));
+
+	if (strlcpy(addr.sun_path, SETRANS_UNIX_SOCKET, sizeof(addr.sun_path)) >= sizeof(addr.sun_path)) {
+		close(fd);
+		errno = EOVERFLOW;
+		return -1;
+	}
+
 	if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 		close(fd);
 		return -1;
@@ -272,7 +278,7 @@ static inline void init_thread_destructor(void)
 	if (!has_setrans)
 		return;
 	if (destructor_initialized == 0) {
-		__selinux_setspecific(destructor_key, (void *)1);
+		__selinux_setspecific(destructor_key, /* some valid address to please GCC */ &selinux_page_size);
 		destructor_initialized = 1;
 	}
 }

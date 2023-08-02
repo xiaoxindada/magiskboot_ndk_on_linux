@@ -32,6 +32,8 @@
 #include <string.h>
 #include <sepol/policydb/hashtab.h>
 
+#include "private.h"
+
 hashtab_t hashtab_create(unsigned int (*hash_value) (hashtab_t h,
 						     const_hashtab_key_t key),
 			 int (*keycmp) (hashtab_t h,
@@ -41,7 +43,6 @@ hashtab_t hashtab_create(unsigned int (*hash_value) (hashtab_t h,
 {
 
 	hashtab_t p;
-	unsigned int i;
 
 	p = (hashtab_t) malloc(sizeof(hashtab_val_t));
 	if (p == NULL)
@@ -52,13 +53,11 @@ hashtab_t hashtab_create(unsigned int (*hash_value) (hashtab_t h,
 	p->nel = 0;
 	p->hash_value = hash_value;
 	p->keycmp = keycmp;
-	p->htable = (hashtab_ptr_t *) malloc(sizeof(hashtab_ptr_t) * size);
+	p->htable = (hashtab_ptr_t *) calloc(size, sizeof(hashtab_ptr_t));
 	if (p->htable == NULL) {
 		free(p);
 		return NULL;
 	}
-	for (i = 0; i < size; i++)
-		p->htable[i] = (hashtab_ptr_t) NULL;
 
 	return p;
 }
@@ -222,8 +221,9 @@ int hashtab_map(hashtab_t h,
 		int (*apply) (hashtab_key_t k,
 			      hashtab_datum_t d, void *args), void *args)
 {
-	unsigned int i, ret;
+	unsigned int i;
 	hashtab_ptr_t cur;
+	int ret;
 
 	if (!h)
 		return SEPOL_OK;

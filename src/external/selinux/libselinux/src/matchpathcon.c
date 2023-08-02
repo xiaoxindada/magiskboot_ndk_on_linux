@@ -215,10 +215,9 @@ int matchpathcon_filespec_add(ino_t ino, int specind, const char *file)
 			if (ret < 0 || sb.st_ino != ino) {
 				fl->specind = specind;
 				free(fl->file);
-				fl->file = malloc(strlen(file) + 1);
+				fl->file = strdup(file);
 				if (!fl->file)
 					goto oom;
-				strcpy(fl->file, file);
 				return fl->specind;
 
 			}
@@ -232,10 +231,9 @@ int matchpathcon_filespec_add(ino_t ino, int specind, const char *file)
 			     __FUNCTION__, file, fl->file,
 			     con_array[fl->specind]);
 			free(fl->file);
-			fl->file = malloc(strlen(file) + 1);
+			fl->file = strdup(file);
 			if (!fl->file)
 				goto oom;
-			strcpy(fl->file, file);
 			return fl->specind;
 		}
 
@@ -248,10 +246,9 @@ int matchpathcon_filespec_add(ino_t ino, int specind, const char *file)
 		goto oom;
 	fl->ino = ino;
 	fl->specind = specind;
-	fl->file = malloc(strlen(file) + 1);
+	fl->file = strdup(file);
 	if (!fl->file)
 		goto oom_freefl;
-	strcpy(fl->file, file);
 	fl->next = prevfl->next;
 	prevfl->next = fl;
 	return fl->specind;
@@ -356,7 +353,7 @@ int matchpathcon_init_prefix(const char *path, const char *subset)
 		mycanoncon = default_canoncon;
 
 	__selinux_once(once, matchpathcon_init_once);
-	__selinux_setspecific(destructor_key, (void *)1);
+	__selinux_setspecific(destructor_key, /* some valid address to please GCC */ &selinux_page_size);
 
 	options[SELABEL_OPT_SUBSET].type = SELABEL_OPT_SUBSET;
 	options[SELABEL_OPT_SUBSET].value = subset;

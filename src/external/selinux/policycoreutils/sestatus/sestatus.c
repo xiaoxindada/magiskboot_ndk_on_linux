@@ -35,7 +35,7 @@ static unsigned int COL = 32;
 
 extern char *selinux_mnt;
 
-int cmp_cmdline(const char *command, int pid)
+static int cmp_cmdline(const char *command, int pid)
 {
 
 	char buf[BUFSIZE];
@@ -59,7 +59,7 @@ int cmp_cmdline(const char *command, int pid)
 		return 0;
 }
 
-int pidof(const char *command)
+static int pidof(const char *command)
 {
 /* inspired by killall5.c from psmisc */
 	char stackpath[PATH_MAX + 1], *p;
@@ -92,7 +92,7 @@ int pidof(const char *command)
 	return ret;
 }
 
-void load_checks(char *pc[], int *npc, char *fc[], int *nfc)
+static void load_checks(char *pc[], int *npc, char *fc[], int *nfc)
 {
 
 	FILE *fp = fopen(CONF, "r");
@@ -140,6 +140,8 @@ void load_checks(char *pc[], int *npc, char *fc[], int *nfc)
 					pc[*npc] =
 					    (char *)malloc((buf_len) *
 							   sizeof(char));
+					if (!pc[*npc])
+						break;
 					memcpy(pc[*npc], bufp, buf_len);
 					(*npc)++;
 					bufp = NULL;
@@ -150,6 +152,8 @@ void load_checks(char *pc[], int *npc, char *fc[], int *nfc)
 					fc[*nfc] =
 					    (char *)malloc((buf_len) *
 							   sizeof(char));
+					if (!fc[*nfc])
+						break;
 					memcpy(fc[*nfc], bufp, buf_len);
 					(*nfc)++;
 					bufp = NULL;
@@ -168,11 +172,9 @@ void load_checks(char *pc[], int *npc, char *fc[], int *nfc)
 	return;
 }
 
-void printf_tab(const char *outp)
+static void printf_tab(const char *outp)
 {
-	char buf[20];
-	snprintf(buf, sizeof(buf), "%%-%us", COL);
-	printf(buf, outp);
+	printf("%-*s", COL, outp);
 
 }
 
