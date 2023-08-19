@@ -16,7 +16,7 @@ def _get_apple_resources_toolchain_attr():
     # FIXME: prelude// should be standalone (not refer to fbcode//)
     return attrs.toolchain_dep(default = "fbcode//buck2/platform/toolchain:apple-resources", providers = [AppleToolchainInfo])
 
-def _impl(ctx: "context") -> ["provider"]:
+def _impl(ctx: AnalysisContext) -> list[Provider]:
     resource_output = get_apple_bundle_resource_part_list(ctx)
     return [
         DefaultInfo(),
@@ -37,6 +37,7 @@ registration_spec = RuleRegistrationSpec(
         "ibtool_module_flag": attrs.option(attrs.bool(), default = None),
         "info_plist": attrs.source(),
         "info_plist_substitutions": attrs.dict(key = attrs.string(), value = attrs.string(), sorted = False, default = {}),
+        "labels": attrs.list(attrs.string(), default = []),
         "product_name": attrs.option(attrs.string(), default = None),
         "resource_group": attrs.option(attrs.string(), default = None),
         "resource_group_map": resource_group_map_attr(),

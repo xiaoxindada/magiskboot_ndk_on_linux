@@ -5,6 +5,8 @@
 # License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 # of this source tree.
 
+load("@prelude//:artifacts.bzl", "ArtifactGroupInfo")
+
 def filegroup_impl(ctx):
     """
     Creates a directory that contains links to the list of srcs
@@ -16,12 +18,30 @@ def filegroup_impl(ctx):
     if type(ctx.attrs.srcs) == type({}):
         srcs = ctx.attrs.srcs
     else:
-        srcs = {src.short_path: src for src in ctx.attrs.srcs}
+        srcs = {}
+        for src in ctx.attrs.srcs:
+            existing = srcs.get(src.short_path)
+            if existing != None and existing != src:
+                soft_error(
+                    "starlark_filegroup_duplicate_srcs",
+                    "filegroup {} has srcs with duplicate names: {} and {}".format(ctx.label, src, srcs[src.short_path]),
+                    quiet = True,
+                    stack = False,
+                )
+            srcs[src.short_path] = src
 
+    # It seems that buck1 always copies, and that's important for Python rules
     if ctx.attrs.copy:
         output = ctx.actions.copied_dir(ctx.label.name, srcs)
     else:
         output = ctx.actions.symlinked_dir(ctx.label.name, srcs)
 
-    # It seems that buck1 always copies, and that's important for Python rules
-    return [DefaultInfo(default_output = output)]
+    if type(ctx.attrs.srcs) == type([]):
+        artifacts = ctx.attrs.srcs
+    else:
+        artifacts = [output.project(name, hide_prefix = True) for name in srcs]
+
+    return [
+        DefaultInfo(default_output = output),
+        ArtifactGroupInfo(artifacts = artifacts),
+    ]

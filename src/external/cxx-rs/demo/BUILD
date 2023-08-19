@@ -5,7 +5,7 @@ load("//tools/bazel:rust_cxx_bridge.bzl", "rust_cxx_bridge")
 rust_binary(
     name = "demo",
     srcs = glob(["src/**/*.rs"]),
-    edition = "2018",
+    edition = "2021",
     deps = [
         ":blobstore-sys",
         ":bridge",
@@ -22,7 +22,6 @@ rust_cxx_bridge(
 cc_library(
     name = "blobstore-sys",
     srcs = ["src/blobstore.cc"],
-    copts = ["-std=c++14"],
     deps = [
         ":blobstore-include",
         ":bridge/include",

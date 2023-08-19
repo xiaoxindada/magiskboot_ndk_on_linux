@@ -76,8 +76,12 @@ inline namespace cxxbridge1 {
 
 template <typename Exception>
 void panic [[noreturn]] (const char *msg) {
-  std::printf("Error: %s. Aborting.\n", msg);
+#if defined(RUST_CXX_NO_EXCEPTIONS)
+  std::fprintf(stderr, "Error: %s. Aborting.\n", msg);
   std::abort();
+#else
+  throw Exception(msg);
+#endif
 }
 
 template void panic<std::out_of_range> [[noreturn]] (const char *msg);
@@ -282,7 +286,7 @@ String::String(unsafe_bitcopy_t, const String &bits) noexcept
     : repr(bits.repr) {}
 
 std::ostream &operator<<(std::ostream &os, const String &s) {
-  os.write(s.data(), s.size());
+  os.write(s.data(), static_cast<std::streamsize>(s.size()));
   return os;
 }
 
@@ -371,7 +375,7 @@ void Str::swap(Str &rhs) noexcept {
 }
 
 std::ostream &operator<<(std::ostream &os, const Str &s) {
-  os.write(s.data(), s.size());
+  os.write(s.data(), static_cast<std::streamsize>(s.size()));
   return os;
 }
 

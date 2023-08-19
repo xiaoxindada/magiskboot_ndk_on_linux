@@ -76,7 +76,7 @@ load(":python_library.bzl", "create_python_library_info", "dest_prefix", "gather
 
 # This extension is basically cxx_library, plus base_module.
 # So we augment with default attributes so it has everything cxx_library has, and then call cxx_library_parameterized and work from that.
-def cxx_python_extension_impl(ctx: "context") -> ["provider"]:
+def cxx_python_extension_impl(ctx: AnalysisContext) -> list[Provider]:
     providers = []
 
     if ctx.attrs._target_os_type[OsLookup].platform == "windows":
@@ -202,6 +202,7 @@ def cxx_python_extension_impl(ctx: "context") -> ["provider"]:
         ),
         merged_link_info = create_merged_link_info(
             ctx = ctx,
+            pic_behavior = get_cxx_toolchain_info(ctx).pic_behavior,
             link_infos = link_infos,
             preferred_linkage = Linkage("static"),
             deps = [d.merged_link_info for d in link_deps],

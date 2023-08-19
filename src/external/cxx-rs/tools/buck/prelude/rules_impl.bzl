@@ -14,6 +14,9 @@ load("@prelude//apple:apple_rules_impl.bzl", _apple_extra_attributes = "extra_at
 
 # Configuration
 load("@prelude//configurations:rules.bzl", _config_extra_attributes = "extra_attributes", _config_implemented_rules = "implemented_rules")
+
+# C++ - LLVM
+load("@prelude//cxx:bitcode.bzl", "llvm_link_bitcode_impl")
 load("@prelude//cxx:cxx.bzl", "cxx_binary_impl", "cxx_library_impl", "cxx_precompiled_header_impl", "cxx_test_impl", "prebuilt_cxx_library_impl")
 load("@prelude//cxx:cxx_toolchain.bzl", "cxx_toolchain_extra_attributes", "cxx_toolchain_impl")
 load("@prelude//cxx:cxx_toolchain_types.bzl", "CxxPlatformInfo", "CxxToolchainInfo")
@@ -25,12 +28,16 @@ load("@prelude//cxx:prebuilt_cxx_library_group.bzl", "prebuilt_cxx_library_group
 load("@prelude//cxx/user:link_group_map.bzl", "link_group_map_attr")
 
 # Erlang
-load("@prelude//erlang:erlang.bzl", _erlang_extra_attributes = "attributes", _erlang_implemented_rules = "implemented_rules")
-load("@prelude//go:cgo_library.bzl", "cgo_library_impl")
-load("@prelude//go:coverage.bzl", "GoCoverageMode")
+load("@prelude//erlang:erlang.bzl", _erlang_implemented_rules = "implemented_rules")
+
+# Git
+load("@prelude//git:git_fetch.bzl", "git_fetch_impl")
 
 # Go
+load("@prelude//go:cgo_library.bzl", "cgo_library_impl")
+load("@prelude//go:coverage.bzl", "GoCoverageMode")
 load("@prelude//go:go_binary.bzl", "go_binary_impl")
+load("@prelude//go:go_exported_library.bzl", "go_exported_library_impl")
 load("@prelude//go:go_library.bzl", "go_library_impl")
 load("@prelude//go:go_test.bzl", "go_test_impl")
 
@@ -89,6 +96,8 @@ load("@prelude//decls/core_rules.bzl", "core_rules")
 load("@prelude//decls/cxx_rules.bzl", "cxx_rules")
 load("@prelude//decls/d_rules.bzl", "d_rules")
 load("@prelude//decls/dotnet_rules.bzl", "dotnet_rules")
+load("@prelude//decls/erlang_rules.bzl", "erlang_rules")
+load("@prelude//decls/git_rules.bzl", "git_rules")
 load("@prelude//decls/go_rules.bzl", "go_rules")
 load("@prelude//decls/groovy_rules.bzl", "groovy_rules")
 load("@prelude//decls/halide_rules.bzl", "halide_rules")
@@ -128,6 +137,8 @@ rule_decl_records = [
     cxx_rules,
     d_rules,
     dotnet_rules,
+    erlang_rules,
+    git_rules,
     go_rules,
     groovy_rules,
     halide_rules,
@@ -183,9 +194,16 @@ extra_implemented_rules = struct(
     prebuilt_cxx_library = prebuilt_cxx_library_impl,
     prebuilt_cxx_library_group = prebuilt_cxx_library_group_impl,
 
+    # C++ / LLVM
+    llvm_link_bitcode = llvm_link_bitcode_impl,
+
+    #git
+    git_fetch = git_fetch_impl,
+
     #go
     cgo_library = cgo_library_impl,
     go_binary = go_binary_impl,
+    go_exported_library = go_exported_library_impl,
     go_library = go_library_impl,
     go_test = go_test_impl,
 
@@ -277,7 +295,8 @@ def _python_executable_attrs():
 
     # allow non-default value for the args below
     updated_attrs.update({
-        "binary_linker_flags": attrs.list(attrs.arg(), default = []),
+        "anonymous_link_groups": attrs.bool(default = False),
+        "binary_linker_flags": attrs.list(attrs.arg(anon_target_compatible = True), default = []),
         "compiler_flags": attrs.list(attrs.arg(), default = []),
         "constraint_overrides": attrs.list(attrs.string(), default = []),
         "cxx_main": attrs.source(default = "prelude//python/tools:embedded_main.cpp"),
@@ -288,7 +307,8 @@ def _python_executable_attrs():
         "link_group": attrs.option(attrs.string(), default = None),
         "link_group_map": link_group_map_attr(),
         "link_group_min_binary_node_count": attrs.option(attrs.int(), default = None),
-        "make_pex": attrs.option(attrs.exec_dep(providers = [RunInfo]), default = None),
+        "link_style": attrs.enum(LinkableDepType, default = "static"),
+        "make_py_package": attrs.option(attrs.exec_dep(providers = [RunInfo]), default = None),
         # entries for the generated __manifest__ python module
         "manifest_module_entries": attrs.option(attrs.dict(key = attrs.string(), value = attrs.dict(key = attrs.string(), value = attrs.any())), default = None),
         "native_link_strategy": attrs.option(attrs.enum(NativeLinkStrategy), default = None),
@@ -319,11 +339,12 @@ def _python_test_attrs():
 
 def _cxx_binary_and_test_attrs():
     return {
+        "anonymous_link_groups": attrs.bool(default = False),
         "auto_link_groups": attrs.bool(default = False),
         # Linker flags that only apply to the executable link, used for link
         # strategies (e.g. link groups) which may link shared libraries from
         # top-level binary context.
-        "binary_linker_flags": attrs.list(attrs.arg(), default = []),
+        "binary_linker_flags": attrs.list(attrs.arg(anon_target_compatible = True), default = []),
         "bolt_flags": attrs.list(attrs.arg(), default = []),
         "bolt_gdb_index": attrs.option(attrs.source(), default = None),
         "bolt_profile": attrs.option(attrs.source(), default = None),
@@ -402,10 +423,18 @@ inlined_extra_attributes = {
         **_cxx_binary_and_test_attrs()
     ),
     "cxx_toolchain": cxx_toolchain_extra_attributes(is_toolchain_rule = False),
+
+    # Generic rule to build from a command
     "genrule": genrule_attributes(),
+
+    # Go
     "go_binary": {
         "embedcfg": attrs.option(attrs.source(allow_directory = False), default = None),
         "resources": attrs.list(attrs.one_of(attrs.dep(), attrs.source(allow_directory = True)), default = []),
+        "_go_toolchain": toolchains_common.go(),
+    },
+    "go_exported_library": {
+        "embedcfg": attrs.option(attrs.source(allow_directory = False), default = None),
         "_go_toolchain": toolchains_common.go(),
     },
     "go_library": {
@@ -432,6 +461,11 @@ inlined_extra_attributes = {
         "_cxx_toolchain": toolchains_common.cxx(),
         "_haskell_toolchain": toolchains_common.haskell(),
     },
+    "haskell_ghci": {
+        "template_deps": attrs.list(attrs.exec_dep(providers = [HaskellLibraryProvider]), default = []),
+        "_cxx_toolchain": toolchains_common.cxx(),
+        "_haskell_toolchain": toolchains_common.haskell(),
+    },
     "haskell_ide": {
         "include_projects": attrs.list(attrs.dep(), default = []),
         "_haskell_toolchain": toolchains_common.haskell(),
@@ -442,22 +476,29 @@ inlined_extra_attributes = {
         "_cxx_toolchain": toolchains_common.cxx(),
         "_haskell_toolchain": toolchains_common.haskell(),
     },
+    "llvm_link_bitcode": {
+        "_cxx_toolchain": toolchains_common.cxx(),
+    },
     "ndk_toolchain": {
         "cxx_toolchain": attrs.toolchain_dep(providers = [CxxToolchainInfo, CxxPlatformInfo]),
     },
     "prebuilt_cxx_library": {
         "exported_header_style": attrs.enum(IncludeType, default = "system"),
         "header_dirs": attrs.option(attrs.list(attrs.source(allow_directory = True)), default = None),
-        "linker_flags": attrs.list(attrs.arg(), default = []),
+        "linker_flags": attrs.list(attrs.arg(anon_target_compatible = True), default = []),
         "platform_header_dirs": attrs.option(attrs.list(attrs.tuple(attrs.regex(), attrs.list(attrs.source(allow_directory = True)))), default = None),
         "preferred_linkage": attrs.enum(Linkage, default = "any"),
         "public_include_directories": attrs.set(attrs.string(), sorted = True, default = []),
         "public_system_include_directories": attrs.set(attrs.string(), sorted = True, default = []),
         "raw_headers": attrs.set(attrs.source(), sorted = True, default = []),
-        "supports_python_dlopen": attrs.option(attrs.bool(), default = None),
+        "supports_python_dlopen": attrs.bool(default = True),
         "versioned_header_dirs": attrs.option(attrs.versioned(attrs.list(attrs.source(allow_directory = True))), default = None),
         "_cxx_toolchain": toolchains_common.cxx(),
         "_omnibus_environment": omnibus_environment_attr(),
+        "_target_os_type": buck.target_os_type_arg(),
+    },
+    "prebuilt_cxx_library_group": {
+        "_cxx_toolchain": toolchains_common.cxx(),
     },
 
     #python
@@ -515,7 +556,6 @@ all_extra_attributes = _merge_dictionaries([
     _android_extra_attributes,
     _apple_extra_attributes,
     _config_extra_attributes,
-    _erlang_extra_attributes,
     _java_extra_attributes,
     _js_extra_attributes,
     _julia_extra_attributes,
@@ -552,6 +592,7 @@ extra_attributes = struct(**all_extra_attributes)
 
 # Configuration transitions to pass `cfg` for builtin rules.
 transitions = {
+    "android_binary": constraint_overrides_transition,
     "python_binary": constraint_overrides_transition,
     "python_test": constraint_overrides_transition,
 }

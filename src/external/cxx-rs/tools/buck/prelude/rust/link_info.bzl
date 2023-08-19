@@ -8,10 +8,17 @@
 # Implementation of the Rust build rules.
 
 load(
+    "@prelude//:artifact_tset.bzl",
+    "ArtifactTSet",
+    "make_artifact_tset",
+)
+load(
     "@prelude//linking:link_info.bzl",
     "LinkStyle",
     "MergedLinkInfo",
+    "get_link_args",
     "merge_link_infos",
+    "unpack_external_debug_info",
 )
 load(
     "@prelude//linking:shared_libraries.bzl",
@@ -44,47 +51,55 @@ RustLinkInfo = provider(fields = [
 ])
 
 CrateName = record(
-    simple = field(str.type),
-    dynamic = field(["artifact", None]),
+    simple = field(str),
+    dynamic = field([Artifact, None]),
 )
 
 # Information which is keyed on link_style
 RustLinkStyleInfo = record(
     # Path to library or binary
-    rlib = field("artifact"),
-    # Transitive dependencies which are relevant to consumer
-    # This is a dict from artifact to None (we don't have sets)
-    transitive_deps = field({"artifact": CrateName.type}),
+    rlib = field(Artifact),
+    # Transitive dependencies which are relevant to the consumer. For crate types which do not
+    # propagate their deps (specifically proc macros), this set is empty
+    transitive_deps = field(dict[Artifact, CrateName.type]),
 
     # Path for library metadata (used for check or pipelining)
-    rmeta = field("artifact"),
-    # Transitive rmeta deps
-    transitive_rmeta_deps = field({"artifact": CrateName.type}),
+    rmeta = field(Artifact),
+    # Transitive rmeta deps. This is the same dict as `transitive_deps`, except that it has the
+    # rmeta and not the rlib artifact
+    transitive_rmeta_deps = field(dict[Artifact, CrateName.type]),
+
     # Path to PDB file with Windows debug data.
-    pdb = field(["artifact", None]),
+    pdb = field([Artifact, None]),
+    # Debug info which is referenced -- but not included -- by the linkable rlib.
+    external_debug_info = field(ArtifactTSet.type),
 )
 
-def style_info(info: RustLinkInfo.type, link_style: LinkStyle.type) -> RustLinkStyleInfo.type:
-    if FORCE_RLIB and link_style == LinkStyle("shared"):
-        link_style = DEFAULT_STATIC_LINK_STYLE
+def _adjust_link_style_for_rust_dependencies(dep_link_style: LinkStyle.type) -> LinkStyle.type:
+    if FORCE_RLIB and dep_link_style == LinkStyle("shared"):
+        return DEFAULT_STATIC_LINK_STYLE
+    else:
+        return dep_link_style
 
-    return info.styles[link_style]
+def style_info(info: RustLinkInfo.type, dep_link_style: LinkStyle.type) -> RustLinkStyleInfo.type:
+    rust_dep_link_style = _adjust_link_style_for_rust_dependencies(dep_link_style)
+    return info.styles[rust_dep_link_style]
 
 # A Rust dependency
 RustDependency = record(
     # The actual dependency
-    dep = field("dependency"),
+    dep = field(Dependency),
     # The local name, if any (for `named_deps`)
-    name = field([None, str.type]),
+    name = field([None, str]),
     # Any flags for the dependency (`flagged_deps`), which are passed on to rustc.
-    flags = field([str.type]),
+    flags = field(list[str]),
 )
 
 # Returns all first-order dependencies.
 def _do_resolve_deps(
-        deps: ["dependency"],
-        named_deps: {str.type: "dependency"},
-        flagged_deps: [("dependency", [str.type])] = []) -> [RustDependency.type]:
+        deps: list[Dependency],
+        named_deps: dict[str, Dependency],
+        flagged_deps: list[(Dependency, list[str])] = []) -> list[RustDependency.type]:
     return [
         RustDependency(name = name, dep = dep, flags = flags)
         for name, dep, flags in [(None, dep, []) for dep in deps] +
@@ -93,8 +108,8 @@ def _do_resolve_deps(
     ]
 
 def resolve_deps(
-        ctx: "context",
-        include_doc_deps: bool.type = False) -> [RustDependency.type]:
+        ctx: AnalysisContext,
+        include_doc_deps: bool = False) -> list[RustDependency.type]:
     # The `getattr`s are needed for when we're operating on
     # `prebuilt_rust_library` rules, which don't have those attrs.
     dependencies = _do_resolve_deps(
@@ -113,8 +128,8 @@ def resolve_deps(
 
 # Returns native link dependencies.
 def _non_rust_link_deps(
-        ctx: "context",
-        include_doc_deps: bool.type = False) -> ["dependency"]:
+        ctx: AnalysisContext,
+        include_doc_deps: bool = False) -> list[Dependency]:
     """
     Return all first-order native linkable dependencies of all transitive Rust
     libraries.
@@ -131,8 +146,8 @@ def _non_rust_link_deps(
 
 # Returns native link dependencies.
 def _non_rust_link_infos(
-        ctx: "context",
-        include_doc_deps: bool.type = False) -> ["MergedLinkInfo"]:
+        ctx: AnalysisContext,
+        include_doc_deps: bool = False) -> list[MergedLinkInfo.type]:
     """
     Return all first-order native link infos of all transitive Rust libraries.
 
@@ -145,8 +160,8 @@ def _non_rust_link_infos(
 
 # Returns native link dependencies.
 def _non_rust_shared_lib_infos(
-        ctx: "context",
-        include_doc_deps: bool.type = False) -> ["SharedLibraryInfo"]:
+        ctx: AnalysisContext,
+        include_doc_deps: bool = False) -> list[SharedLibraryInfo.type]:
     """
     Return all transitive shared libraries for non-Rust native linkabes.
 
@@ -162,15 +177,15 @@ def _non_rust_shared_lib_infos(
 
 # Returns native link dependencies.
 def _rust_link_infos(
-        ctx: "context",
-        include_doc_deps: bool.type = False) -> ["RustLinkInfo"]:
+        ctx: AnalysisContext,
+        include_doc_deps: bool = False) -> list[RustLinkInfo.type]:
     first_order_deps = resolve_deps(ctx, include_doc_deps)
     return filter(None, [d.dep.get(RustLinkInfo) for d in first_order_deps])
 
-def normalize_crate(label: str.type) -> str.type:
+def normalize_crate(label: str) -> str:
     return label.replace("-", "_")
 
-def inherited_non_rust_exported_link_deps(ctx: "context") -> ["dependency"]:
+def inherited_non_rust_exported_link_deps(ctx: AnalysisContext) -> list[Dependency]:
     deps = {}
     for dep in _non_rust_link_deps(ctx):
         deps[dep.label] = dep
@@ -180,22 +195,50 @@ def inherited_non_rust_exported_link_deps(ctx: "context") -> ["dependency"]:
     return deps.values()
 
 def inherited_non_rust_link_info(
-        ctx: "context",
-        include_doc_deps: bool.type = False) -> "MergedLinkInfo":
+        ctx: AnalysisContext,
+        include_doc_deps: bool = False) -> MergedLinkInfo.type:
     infos = []
     infos.extend(_non_rust_link_infos(ctx, include_doc_deps))
     infos.extend([d.non_rust_link_info for d in _rust_link_infos(ctx, include_doc_deps)])
     return merge_link_infos(ctx, infos)
 
 def inherited_non_rust_shared_libs(
-        ctx: "context",
-        include_doc_deps: bool.type = False) -> ["SharedLibraryInfo"]:
+        ctx: AnalysisContext,
+        include_doc_deps: bool = False) -> list[SharedLibraryInfo.type]:
     infos = []
     infos.extend(_non_rust_shared_lib_infos(ctx, include_doc_deps))
     infos.extend([d.non_rust_shared_libs for d in _rust_link_infos(ctx, include_doc_deps)])
     return infos
 
-def attr_simple_crate_for_filenames(ctx: "context") -> str.type:
+def inherited_external_debug_info(
+        ctx: AnalysisContext,
+        dwo_output_directory: [Artifact, None],
+        dep_link_style: LinkStyle.type) -> ArtifactTSet:
+    rust_dep_link_style = _adjust_link_style_for_rust_dependencies(dep_link_style)
+    non_rust_dep_link_style = dep_link_style
+
+    inherited_debug_infos = []
+    inherited_non_rust_link_infos = []
+
+    for d in resolve_deps(ctx):
+        if RustLinkInfo in d.dep:
+            inherited_debug_infos.append(d.dep[RustLinkInfo].styles[rust_dep_link_style].external_debug_info)
+            inherited_non_rust_link_infos.append(d.dep[RustLinkInfo].non_rust_link_info)
+        elif MergedLinkInfo in d.dep:
+            inherited_non_rust_link_infos.append(d.dep[MergedLinkInfo])
+
+    non_rust_merged_link_info = merge_link_infos(ctx, inherited_non_rust_link_infos)
+    link_args = get_link_args(non_rust_merged_link_info, non_rust_dep_link_style)
+    inherited_debug_infos.append(unpack_external_debug_info(ctx.actions, link_args))
+
+    return make_artifact_tset(
+        actions = ctx.actions,
+        label = ctx.label,
+        artifacts = filter(None, [dwo_output_directory]),
+        children = inherited_debug_infos,
+    )
+
+def attr_simple_crate_for_filenames(ctx: AnalysisContext) -> str:
     """
     A "good enough" identifier to use in filenames. Buck wants to have filenames
     of artifacts figured out before we begin building them. Normally we want a
@@ -217,7 +260,7 @@ def attr_simple_crate_for_filenames(ctx: "context") -> str.type:
     """
     return normalize_crate(ctx.attrs.crate or ctx.label.name)
 
-def attr_crate(ctx: "context") -> CrateName.type:
+def attr_crate(ctx: AnalysisContext) -> CrateName.type:
     """
     The true user-facing name of the crate, which may only be known at build
     time, not during analysis.

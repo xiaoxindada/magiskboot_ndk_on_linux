@@ -9,7 +9,7 @@ load("@prelude//apple:apple_toolchain_types.bzl", "AppleToolchainInfo")
 load("@prelude//cxx:cxx_toolchain_types.bzl", "CxxToolchainInfo")
 load("@prelude//user:rule_spec.bzl", "RuleRegistrationSpec")
 
-def _impl(ctx: "context") -> ["provider"]:
+def _impl(ctx: AnalysisContext) -> list[Provider]:
     base = ctx.attrs.base[AppleToolchainInfo]
     cxx_toolchain_override = ctx.attrs.cxx_toolchain[CxxToolchainInfo]
     return [
@@ -18,6 +18,7 @@ def _impl(ctx: "context") -> ["provider"]:
             actool = base.actool,
             codesign = base.codesign,
             codesign_allocate = base.codesign_allocate,
+            copy_scene_kit_assets = base.copy_scene_kit_assets,
             compile_resources_locally = base.compile_resources_locally,
             cxx_platform_info = base.cxx_platform_info,
             cxx_toolchain_info = cxx_toolchain_override if cxx_toolchain_override != None else base.cxx_toolchain_info,

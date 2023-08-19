@@ -7,12 +7,17 @@
 
 load(
     "@prelude//cxx:groups.bzl",
-    "compute_mappings",
+    "BuildTargetFilter",  # @unused Used as a type
+    "FilterType",
+    "Group",  # @unused Used as a type
+    "GroupMapping",  # @unused Used as a type
+    "LabelFilter",  # @unused Used as a type
+    "parse_groups_definitions",
 )
 load(
     "@prelude//cxx:link_groups.bzl",
     "LinkGroupInfo",
-    "parse_link_group_definitions",
+    "build_link_group_info",
 )
 load(
     "@prelude//linking:link_groups.bzl",
@@ -26,35 +31,55 @@ load(
     "@prelude//linking:linkable_graph.bzl",
     "LinkableGraph",
     "create_linkable_graph",
-    "get_linkable_graph_node_map_func",
 )
 load(
     "@prelude//linking:shared_libraries.bzl",
     "SharedLibraryInfo",
 )
 load("@prelude//user:rule_spec.bzl", "RuleRegistrationSpec")
+load(
+    "@prelude//utils:build_target_pattern.bzl",
+    "BuildTargetPattern",  # @unused Used as a type
+)
 load("@prelude//decls/common.bzl", "Linkage", "Traversal")
 
-def _v1_attrs(optional_root: bool.type = False):
-    attrs_root = attrs.dep(providers = [
-        LinkGroupLibInfo,
-        LinkableGraph,
-        MergedLinkInfo,
-        SharedLibraryInfo,
-    ])
+def _v1_attrs(
+        optional_root: bool = False,
+        # Whether we should parse `root` fields as a `dependency`, instead of a `label`.
+        root_is_dep: bool = True):
+    if root_is_dep:
+        attrs_root = attrs.dep(providers = [
+            LinkGroupLibInfo,
+            LinkableGraph,
+            MergedLinkInfo,
+            SharedLibraryInfo,
+        ])
+    else:
+        attrs_root = attrs.label()
+
     if optional_root:
         attrs_root = attrs.option(attrs_root)
+
     return attrs.list(
         attrs.tuple(
+            # name
             attrs.string(),
+            # list of mappings
             attrs.list(
+                # a single mapping
                 attrs.tuple(
+                    # root node
                     attrs_root,
+                    # traversal
                     attrs.enum(Traversal),
-                    attrs.option(attrs.string()),
+                    # filters, either `None`, a single filter, or a list of filters
+                    # (which must all match).
+                    attrs.option(attrs.one_of(attrs.list(attrs.string()), attrs.string())),
+                    # linkage
                     attrs.option(attrs.enum(Linkage)),
                 ),
             ),
+            # attributes
             attrs.option(
                 attrs.dict(key = attrs.string(), value = attrs.any(), sorted = False),
             ),
@@ -63,23 +88,83 @@ def _v1_attrs(optional_root: bool.type = False):
 
 def link_group_map_attr():
     v2_attrs = attrs.dep(providers = [LinkGroupInfo])
-    return attrs.option(attrs.one_of(v2_attrs, _v1_attrs(optional_root = True)), default = None)
+    return attrs.option(
+        attrs.one_of(
+            v2_attrs,
+            _v1_attrs(
+                optional_root = True,
+                # Inlined `link_group_map` will parse roots as `label`s, to avoid
+                # bloating deps w/ unrelated mappings (e.g. it's common to use
+                # a default mapping for all rules, which would otherwise add
+                # unrelated deps to them).
+                root_is_dep = False,
+            ),
+        ),
+        default = None,
+    )
 
-def _impl(ctx: "context") -> ["provider"]:
-    link_groups = parse_link_group_definitions(ctx.attrs.map)
+def _make_json_info_for_build_target_pattern(build_target_pattern: BuildTargetPattern.type) -> dict[str, typing.Any]:
+    # `BuildTargetPattern` contains lambdas which are not serializable, so
+    # have to generate the JSON representation
+    return {
+        "cell": build_target_pattern.cell,
+        "kind": build_target_pattern.kind,
+        "name": build_target_pattern.name,
+        "path": build_target_pattern.path,
+    }
+
+def _make_json_info_for_group_mapping_filters(filters: list[[BuildTargetFilter.type, LabelFilter.type]]) -> list[dict[str, typing.Any]]:
+    json_filters = []
+    for filter in filters:
+        if filter._type == FilterType("label"):
+            json_filters += [{"regex": str(filter.regex)}]
+        elif filter._type == FilterType("pattern"):
+            json_filters += [_make_json_info_for_build_target_pattern(filter.pattern)]
+        else:
+            fail("Unknown filter type: " + filter)
+    return json_filters
+
+def _make_json_info_for_group_mapping(group_mapping: GroupMapping.type) -> dict[str, typing.Any]:
+    return {
+        "filters": _make_json_info_for_group_mapping_filters(group_mapping.filters),
+        "preferred_linkage": group_mapping.preferred_linkage,
+        "root": group_mapping.root,
+        "traversal": group_mapping.traversal,
+    }
+
+def _make_json_info_for_group(group: Group.type) -> dict[str, typing.Any]:
+    return {
+        "attrs": group.attrs,
+        "mappings": [_make_json_info_for_group_mapping(mapping) for mapping in group.mappings],
+        "name": group.name,
+    }
+
+def _make_info_subtarget_providers(ctx: AnalysisContext, link_group_info: LinkGroupInfo.type) -> list[Provider]:
+    info_json = {
+        "groups": {name: _make_json_info_for_group(group) for name, group in link_group_info.groups.items()},
+        "mappings": link_group_info.mappings,
+    }
+    json_output = ctx.actions.write_json("link_group_map_info.json", info_json)
+    return [DefaultInfo(default_output = json_output)]
+
+def _impl(ctx: AnalysisContext) -> list[Provider]:
+    # Extract graphs from the roots via the raw attrs, as `parse_groups_definitions`
+    # parses them as labels.
     linkable_graph = create_linkable_graph(
         ctx,
         children = [
-            mapping.root.node.linkable_graph
-            for group in link_groups
-            for mapping in group.mappings
+            mapping[0][LinkableGraph]
+            for entry in ctx.attrs.map
+            for mapping in entry[1]
         ],
     )
-    linkable_graph_node_map = get_linkable_graph_node_map_func(linkable_graph)()
-    mappings = compute_mappings(groups = link_groups, graph_map = linkable_graph_node_map)
+    link_groups = parse_groups_definitions(ctx.attrs.map, lambda root: root.label)
+    link_group_info = build_link_group_info(linkable_graph, link_groups)
     return [
-        DefaultInfo(),
-        LinkGroupInfo(groups = link_groups, groups_hash = hash(str(link_groups)), mappings = mappings),
+        DefaultInfo(sub_targets = {
+            "info": _make_info_subtarget_providers(ctx, link_group_info),
+        }),
+        link_group_info,
     ]
 
 registration_spec = RuleRegistrationSpec(

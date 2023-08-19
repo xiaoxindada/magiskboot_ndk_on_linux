@@ -12,7 +12,9 @@ load("@prelude//java/utils:java_utils.bzl", "get_path_separator")
 load("@prelude//utils:utils.bzl", "expect")
 load("@prelude//test/inject_test_run_info.bzl", "inject_test_run_info")
 
-def android_instrumentation_test_impl(ctx: "context"):
+DEFAULT_ANDROID_SUBPLATFORM = "android-30"
+
+def android_instrumentation_test_impl(ctx: AnalysisContext):
     android_toolchain = ctx.attrs._android_toolchain[AndroidToolchainInfo]
 
     cmd = [ctx.attrs._java_toolchain[JavaToolchainInfo].java_for_tests]
@@ -74,8 +76,7 @@ def android_instrumentation_test_impl(ctx: "context"):
         type = "android_instrumentation",
         command = cmd,
         env = ctx.attrs.env,
-        # TODO(T122022107) support static listing
-        labels = ctx.attrs.labels + ["tpx::dynamic_listing_instrumentation_test"],
+        labels = ctx.attrs.labels,
         contacts = ctx.attrs.contacts,
         run_from_project_root = True,
         use_project_relative_paths = True,
@@ -85,11 +86,18 @@ def android_instrumentation_test_impl(ctx: "context"):
                 remote_enabled = True,
                 remote_execution_properties = {
                     "platform": "android-emulator",
-                    "subplatform": "android-30",
+                    "subplatform": _compute_emulator_target(ctx.attrs.labels or []),
                 },
                 remote_execution_use_case = "instrumentation-tests",
             ),
-            "static-listing": CommandExecutorConfig(local_enabled = True, remote_enabled = False),
+            "static-listing": CommandExecutorConfig(
+                local_enabled = True,
+                remote_enabled = True,
+                remote_execution_properties = {
+                    "platform": "linux-remote-execution",
+                },
+                remote_execution_use_case = "buck2-default",
+            ),
         },
         local_resources = {
             "android_emulator": None,
@@ -98,3 +106,12 @@ def android_instrumentation_test_impl(ctx: "context"):
     return inject_test_run_info(ctx, test_info) + [
         DefaultInfo(),
     ]
+
+# replicating the logic in https://fburl.com/code/1fqowxu4 to match buck1's behavior
+def _compute_emulator_target(labels: list[str]) -> str:
+    emulator_target_labels = [label for label in labels if label.startswith("re_emulator_")]
+    expect(len(emulator_target_labels) <= 1, "multiple 're_emulator_' labels were found:[{}], there must be only one!".format(", ".join(emulator_target_labels)))
+    if len(emulator_target_labels) == 0:
+        return DEFAULT_ANDROID_SUBPLATFORM
+    else:  # len(emulator_target_labels) == 1:
+        return emulator_target_labels[0].replace("re_emulator_", "")

@@ -45,13 +45,12 @@
 //! $ cxxbridge src/main.rs > path/to/mybridge.cc
 //! ```
 
-#![doc(html_root_url = "https://docs.rs/cxx-build/1.0.94")]
+#![doc(html_root_url = "https://docs.rs/cxx-build/1.0.105")]
 #![allow(
     clippy::cast_sign_loss,
     clippy::default_trait_access,
     clippy::derive_partial_eq_without_eq,
     clippy::doc_markdown,
-    clippy::drop_copy,
     clippy::enum_glob_use,
     clippy::explicit_auto_deref,
     clippy::if_same_then_else,
@@ -76,6 +75,7 @@
     clippy::too_many_arguments,
     clippy::too_many_lines,
     clippy::toplevel_ref_arg,
+    clippy::uninlined_format_args,
     clippy::upper_case_acronyms,
     // clippy bug: https://github.com/rust-lang/rust-clippy/issues/6983
     clippy::wrong_self_convention
@@ -369,7 +369,7 @@ fn make_crate_dir(prj: &Project) -> PathBuf {
     let crate_dir = prj.out_dir.join("cxxbridge").join("crate");
     let ref link = crate_dir.join(&prj.include_prefix);
     let ref manifest_dir = prj.manifest_dir;
-    if out::symlink_dir(manifest_dir, link).is_err() && cfg!(not(unix)) {
+    if out::relative_symlink_dir(manifest_dir, link).is_err() && cfg!(not(unix)) {
         let cachedir_tag = "\
         Signature: 8a477f597d28d172789f06886806bc55\n\
         # This file is a cache directory tag created by cxx.\n\
@@ -386,11 +386,11 @@ fn make_include_dir(prj: &Project) -> Result<PathBuf> {
     let cxx_h = include_dir.join("rust").join("cxx.h");
     let ref shared_cxx_h = prj.shared_dir.join("rust").join("cxx.h");
     if let Some(ref original) = env::var_os("DEP_CXXBRIDGE1_HEADER") {
-        out::symlink_file(original, cxx_h)?;
-        out::symlink_file(original, shared_cxx_h)?;
+        out::absolute_symlink_file(original, cxx_h)?;
+        out::absolute_symlink_file(original, shared_cxx_h)?;
     } else {
         out::write(shared_cxx_h, gen::include::HEADER.as_bytes())?;
-        out::symlink_file(shared_cxx_h, cxx_h)?;
+        out::relative_symlink_file(shared_cxx_h, cxx_h)?;
     }
     Ok(include_dir)
 }
@@ -414,7 +414,7 @@ fn generate_bridge(prj: &Project, build: &mut Build, rust_source_file: &Path) ->
     out::write(header_path, &generated.header)?;
 
     let ref link_path = include_dir.join(rel_path);
-    let _ = out::symlink_file(header_path, link_path);
+    let _ = out::relative_symlink_file(header_path, link_path);
 
     let ref rel_path_cc = rel_path.with_appended_extension(".cc");
     let ref implementation_path = sources_dir.join(rel_path_cc);
@@ -423,8 +423,8 @@ fn generate_bridge(prj: &Project, build: &mut Build, rust_source_file: &Path) ->
 
     let shared_h = prj.shared_dir.join(&prj.include_prefix).join(rel_path_h);
     let shared_cc = prj.shared_dir.join(&prj.include_prefix).join(rel_path_cc);
-    let _ = out::symlink_file(header_path, shared_h);
-    let _ = out::symlink_file(implementation_path, shared_cc);
+    let _ = out::relative_symlink_file(header_path, shared_h);
+    let _ = out::relative_symlink_file(implementation_path, shared_cc);
     Ok(())
 }
 
@@ -455,7 +455,7 @@ fn best_effort_copy_headers(src: &Path, dst: &Path, max_depth: usize) {
             Ok(file_type) if file_type.is_file() => {
                 let src = entry.path();
                 match src.extension().and_then(OsStr::to_str) {
-                    Some("h") | Some("hh") | Some("hpp") => {}
+                    Some("h" | "hh" | "hpp") => {}
                     _ => continue,
                 }
                 if !dst_created && fs::create_dir_all(dst).is_err() {

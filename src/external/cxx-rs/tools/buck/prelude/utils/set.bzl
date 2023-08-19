@@ -29,7 +29,7 @@
 
 # Name the record `set_record` to enable users to use `set` to initialize a set.
 set_record = record(
-    _entries = field(dict.type),
+    _entries = field(dict),
     list = field("function"),
     # Adds the value to the set, returning whether the value existed in the set
     add = field("function"),
@@ -46,29 +46,29 @@ set_record = record(
 # encouraged to avoid leaking the underlying implementation.
 set_type = set_record.type
 
-def set(initial_entries: [""] = []) -> set_type:
+def set(initial_entries: list[typing.Any] = []) -> set_type:
     def set_list():
         return self._entries.keys()
 
-    def set_add(v: "") -> bool.type:
+    def set_add(v: typing.Any) -> bool:
         if self.contains(v):
             return True
         self._entries[v] = None
         return False
 
-    def set_contains(v: "") -> bool.type:
+    def set_contains(v: typing.Any) -> bool:
         return v in self._entries
 
-    def set_remove(v: "") -> bool.type:
+    def set_remove(v: typing.Any) -> bool:
         if self.contains(v):
             self._entries.pop(v)
             return True
         return False
 
-    def set_update(values: [""]) -> [""]:
+    def set_update(values: list[typing.Any]) -> list[typing.Any]:
         return filter(None, [v for v in values if not self.add(v)])
 
-    def set_size() -> int.type:
+    def set_size() -> int:
         return len(self._entries)
 
     self = set_record(
