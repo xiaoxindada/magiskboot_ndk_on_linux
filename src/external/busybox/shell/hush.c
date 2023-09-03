@@ -340,7 +340,7 @@
  * therefore we don't show them either.
  */
 //usage:#define hush_trivial_usage
-//usage:	"[-enxl] [-c 'SCRIPT' [ARG0 ARGS] | FILE [ARGS] | -s [ARGS]]"
+//usage:	"[-enxl] [-c 'SCRIPT' [ARG0 ARGS] | FILE ARGS | -s ARGS]"
 //usage:#define hush_full_usage "\n\n"
 //usage:	"Unix shell interpreter"
 
@@ -374,7 +374,7 @@
 # define F_DUPFD_CLOEXEC F_DUPFD
 #endif
 
-#if ENABLE_FEATURE_SH_EMBEDDED_SCRIPTS && !(ENABLE_ASH || ENABLE_SH_IS_ASH || ENABLE_BASH_IS_ASH)
+#if ENABLE_FEATURE_SH_EMBEDDED_SCRIPTS && !ENABLE_SHELL_ASH
 # include "embedded_scripts.h"
 #else
 # define NUM_SCRIPTS 0
@@ -565,7 +565,7 @@ enum {
 #define NULL_O_STRING { NULL }
 
 #ifndef debug_printf_parse
-static const char *const assignment_flag[] = {
+static const char *const assignment_flag[] ALIGN_PTR = {
 	"MAYBE_ASSIGNMENT",
 	"DEFINITELY_ASSIGNMENT",
 	"NOT_ASSIGNMENT",
@@ -919,6 +919,7 @@ struct globals {
 #if ENABLE_HUSH_INTERACTIVE
 	smallint promptmode; /* 0: PS1, 1: PS2 */
 #endif
+	/* set by signal handler if SIGINT is received _and_ its trap is not set */
 	smallint flag_SIGINT;
 #if ENABLE_HUSH_LOOPS
 	smallint flag_break_continue;
@@ -1945,6 +1946,9 @@ enum {
 static void record_pending_signo(int sig)
 {
 	sigaddset(&G.pending_set, sig);
+#if ENABLE_FEATURE_EDITING
+	bb_got_signal = sig; /* for read_line_input: "we got a signal" */
+#endif
 #if ENABLE_HUSH_FAST
 	if (sig == SIGCHLD) {
 		G.count_SIGCHLD++;
@@ -2457,10 +2461,15 @@ static int set_local_var(char *str, unsigned flags)
 	return retval;
 }
 
+static int set_local_var0(char *str)
+{
+	return set_local_var(str, 0);
+}
+
 static void FAST_FUNC set_local_var_from_halves(const char *name, const char *val)
 {
 	char *var = xasprintf("%s=%s", name, val);
-	set_local_var(var, /*flag:*/ 0);
+	set_local_var0(var);
 }
 
 /* Used at startup and after each cd */
@@ -2653,30 +2662,53 @@ static int get_user_input(struct in_str *i)
 	for (;;) {
 		reinit_unicode_for_hush();
 		G.flag_SIGINT = 0;
-		/* buglet: SIGINT will not make new prompt to appear _at once_,
-		 * only after <Enter>. (^C works immediately) */
-		r = read_line_input(G.line_input_state, prompt_str,
+
+		bb_got_signal = 0;
+		if (!sigisemptyset(&G.pending_set)) {
+			/* Whoops, already got a signal, do not call read_line_input */
+			bb_got_signal = r = -1;
+		} else {
+			/* For shell, LI_INTERRUPTIBLE is set:
+			 * read_line_input will abort on either
+			 * getting EINTR in poll(), or if it sees bb_got_signal != 0
+			 * (IOW: if signal arrives before poll() is reached).
+			 * Interactive testcases:
+			 * (while kill -INT $$; do sleep 1; done) &
+			 * #^^^ prints ^C, prints prompt, repeats
+			 * trap 'echo I' int; (while kill -INT $$; do sleep 1; done) &
+			 * #^^^ prints ^C, prints "I", prints prompt, repeats
+			 * trap 'echo T' term; (while kill $$; do sleep 1; done) &
+			 * #^^^ prints "T", prints prompt, repeats
+			 * #(bash 5.0.17 exits after first "T", looks like a bug)
+			 */
+			r = read_line_input(G.line_input_state, prompt_str,
 				G.user_input_buf, CONFIG_FEATURE_EDITING_MAX_LEN-1
-		);
-		/* read_line_input intercepts ^C, "convert" it to SIGINT */
-		if (r == 0) {
-			raise(SIGINT);
+			);
+			/* read_line_input intercepts ^C, "convert" it to SIGINT */
+			if (r == 0)
+				raise(SIGINT);
+		}
+		/* bash prints ^C (before running a trap, if any)
+		 * both on keyboard ^C and on real SIGINT (non-kbd generated).
+		 */
+		if (sigismember(&G.pending_set, SIGINT)) {
+			write(STDOUT_FILENO, "^C\n", 3);
+			G.last_exitcode = 128 | SIGINT;
 		}
 		check_and_run_traps();
-		if (r != 0 && !G.flag_SIGINT)
+		if (r == 0) /* keyboard ^C? */
+			continue; /* go back, read another input line */
+		if (r > 0) /* normal input? (no ^C, no ^D, no signals) */
 			break;
-		/* ^C or SIGINT: repeat */
-		/* bash prints ^C even on real SIGINT (non-kbd generated) */
-		write(STDOUT_FILENO, "^C\n", 3);
-		G.last_exitcode = 128 | SIGINT;
-	}
-	if (r < 0) {
-		/* EOF/error detected */
-		/* ^D on interactive input goes to next line before exiting: */
-		write(STDOUT_FILENO, "\n", 1);
-		i->p = NULL;
-		i->peek_buf[0] = r = EOF;
-		return r;
+		if (!bb_got_signal) {
+			/* r < 0: ^D/EOF/error detected (but not signal) */
+			/* ^D on interactive input goes to next line before exiting: */
+			write(STDOUT_FILENO, "\n", 1);
+			i->p = NULL;
+			i->peek_buf[0] = r = EOF;
+			return r;
+		}
+		/* it was a signal: go back, read another input line */
 	}
 	i->p = G.user_input_buf;
 	return (unsigned char)*i->p++;
@@ -2754,6 +2786,12 @@ static int i_getch(struct in_str *i)
 		if (ch != '\0') {
 			i->p++;
 			i->last_char = ch;
+#if ENABLE_HUSH_LINENO_VAR
+			if (ch == '\n') {
+				G.parse_lineno++;
+				debug_printf_parse("G.parse_lineno++ = %u\n", G.parse_lineno);
+			}
+#endif
 			return ch;
 		}
 		return EOF;
@@ -3355,7 +3393,7 @@ static int glob_brace(char *pattern, o_string *o, int n)
 	 * NEXT points past the terminator of the first element, and REST
 	 * points past the final }.  We will accumulate result names from
 	 * recursive runs for each brace alternative in the buffer using
-	 * GLOB_APPEND.  */
+	 * GLOB_APPEND. */
 
 	p = begin + 1;
 	while (1) {
@@ -3650,7 +3688,7 @@ static void free_pipe_list(struct pipe *pi)
 #ifndef debug_print_tree
 static void debug_print_tree(struct pipe *pi, int lvl)
 {
-	static const char *const PIPE[] = {
+	static const char *const PIPE[] ALIGN_PTR = {
 		[PIPE_SEQ] = "SEQ",
 		[PIPE_AND] = "AND",
 		[PIPE_OR ] = "OR" ,
@@ -3685,7 +3723,7 @@ static void debug_print_tree(struct pipe *pi, int lvl)
 		[RES_XXXX ] = "XXXX" ,
 		[RES_SNTX ] = "SNTX" ,
 	};
-	static const char *const CMDTYPE[] = {
+	static const char *const CMDTYPE[] ALIGN_PTR = {
 		"{}",
 		"()",
 		"[noglob]",
@@ -6306,7 +6344,7 @@ static char *encode_then_expand_vararg(const char *str, int handle_squotes, int 
 
 /* Expanding ARG in ${var+ARG}, ${var-ARG}
  */
-static int encode_then_append_var_plusminus(o_string *output, int n,
+static NOINLINE int encode_then_append_var_plusminus(o_string *output, int n,
 		char *str, int dquoted)
 {
 	struct in_str input;
@@ -6467,16 +6505,21 @@ static arith_t expand_and_evaluate_arith(const char *arg, const char **errmsg_p)
 /* ${var/[/]pattern[/repl]} helpers */
 static char *strstr_pattern(char *val, const char *pattern, int *size)
 {
-	int sz = strcspn(pattern, "*?[\\");
-	if (pattern[sz] == '\0') {
+	int first_escaped = (pattern[0] == '\\' && pattern[1]);
+	/* "first_escaped" trick allows to treat e.g. "\*no_glob_chars"
+	 * as literal too (as it is semi-common, and easy to accomodate
+	 * by just using str + 1).
+	 */
+	int sz = strcspn(pattern + first_escaped * 2, "*?[\\");
+	if ((pattern + first_escaped * 2)[sz] == '\0') {
 		/* Optimization for trivial patterns.
 		 * Testcase for very slow replace (performs about 22k replaces):
 		 * x=::::::::::::::::::::::
 		 * x=$x$x;x=$x$x;x=$x$x;x=$x$x;x=$x$x;x=$x$x;x=$x$x;x=$x$x;x=$x$x;x=$x$x;echo ${#x}
 		 * echo "${x//:/|}"
 		 */
-		*size = sz;
-		return strstr(val, pattern);
+		*size = sz + first_escaped;
+		return strstr(val, pattern + first_escaped);
 	}
 
 	while (1) {
@@ -6927,7 +6970,7 @@ static NOINLINE int expand_one_var(o_string *output, int n,
 							val = NULL;
 						} else {
 							char *new_var = xasprintf("%s=%s", var, val);
-							set_local_var(new_var, /*flag:*/ 0);
+							set_local_var0(new_var);
 						}
 					}
 				}
@@ -7541,11 +7584,11 @@ static void parse_and_run_stream(struct in_str *inp, int end_trigger)
 static void parse_and_run_string(const char *s)
 {
 	struct in_str input;
-	//IF_HUSH_LINENO_VAR(unsigned sv = G.parse_lineno;)
+	IF_HUSH_LINENO_VAR(unsigned sv = G.parse_lineno;)
 
 	setup_string_in_str(&input, s);
 	parse_and_run_stream(&input, '\0');
-	//IF_HUSH_LINENO_VAR(G.parse_lineno = sv;)
+	IF_HUSH_LINENO_VAR(G.parse_lineno = sv;)
 }
 
 static void parse_and_run_file(HFILE *fp)
@@ -7622,7 +7665,7 @@ static int generate_stream_from_string(const char *s, pid_t *pid_p)
 		if (is_prefixed_with(s, "trap")
 		 && skip_whitespace(s + 4)[0] == '\0'
 		) {
-			static const char *const argv[] = { NULL, NULL };
+			static const char *const argv[] ALIGN_PTR = { NULL, NULL };
 			builtin_trap((char**)argv);
 			fflush_all(); /* important */
 			_exit(0);
@@ -8151,7 +8194,7 @@ static const struct built_in_command *find_builtin(const char *name)
 	return find_builtin_helper(name, bltins2, &bltins2[ARRAY_SIZE(bltins2)]);
 }
 
-#if ENABLE_HUSH_JOB && EDITING_HAS_get_exe_name
+#if ENABLE_HUSH_JOB && ENABLE_FEATURE_TAB_COMPLETION
 static const char * FAST_FUNC get_builtin_name(int i)
 {
 	if (/*i >= 0 && */ i < ARRAY_SIZE(bltins1)) {
@@ -8577,7 +8620,7 @@ static NOINLINE void pseudo_exec_argv(nommu_save_t *nommu_save,
 		 * expand_assignments(): think about ... | var=`sleep 1` | ...
 		 */
 		free_strings(new_env);
-		_exit(EXIT_SUCCESS);
+		_exit_SUCCESS();
 	}
 
 	sv_shadowed = G.shadowed_vars_pp;
@@ -8758,7 +8801,7 @@ static void pseudo_exec(nommu_save_t *nommu_save,
 
 	/* Case when we are here: ... | >file */
 	debug_printf_exec("pseudo_exec'ed null command\n");
-	_exit(EXIT_SUCCESS);
+	_exit_SUCCESS();
 }
 
 #if ENABLE_HUSH_JOB
@@ -9336,7 +9379,7 @@ static NOINLINE int run_pipe(struct pipe *pi)
 				}
 #endif
 				debug_printf_env("set shell var:'%s'->'%s'\n", *argv, p);
-				if (set_local_var(p, /*flag:*/ 0)) {
+				if (set_local_var0(p)) {
 					/* assignment to readonly var / putenv error? */
 					rcode = 1;
 				}
@@ -9789,7 +9832,7 @@ static int run_list(struct pipe *pi)
 				static const char encoded_dollar_at[] ALIGN1 = {
 					SPECIAL_VAR_SYMBOL, '@' | 0x80, SPECIAL_VAR_SYMBOL, '\0'
 				}; /* encoded representation of "$@" */
-				static const char *const encoded_dollar_at_argv[] = {
+				static const char *const encoded_dollar_at_argv[] ALIGN_PTR = {
 					encoded_dollar_at, NULL
 				}; /* argv list with one element: "$@" */
 				char **vals;
@@ -9819,7 +9862,7 @@ static int run_list(struct pipe *pi)
 			}
 			/* Insert next value from for_lcur */
 			/* note: *for_lcur already has quotes removed, $var expanded, etc */
-			set_local_var(xasprintf("%s=%s", pi->cmds[0].argv[0], *for_lcur++), /*flag:*/ 0);
+			set_local_var_from_halves(pi->cmds[0].argv[0], *for_lcur++);
 			continue;
 		}
 		if (rword == RES_IN) {
@@ -9899,7 +9942,8 @@ static int run_list(struct pipe *pi)
 #if ENABLE_HUSH_LOOPS
 		G.flag_break_continue = 0;
 #endif
-		rcode = r = run_pipe(pi); /* NB: rcode is a smalluint, r is int */
+		rcode = r = G.o_opt[OPT_O_NOEXEC] ? 0 : run_pipe(pi);
+		/* NB: rcode is a smalluint, r is int */
 		if (r != -1) {
 			/* We ran a builtin, function, or group.
 			 * rcode is already known
@@ -10138,7 +10182,10 @@ static int set_mode(int state, char mode, const char *o_opt)
 	int idx;
 	switch (mode) {
 	case 'n':
-		G.o_opt[OPT_O_NOEXEC] = state;
+		/* set -n has no effect in interactive shell */
+		/* Try: while set -n; do echo $-; done */
+		if (!G_interactive_fd)
+			G.o_opt[OPT_O_NOEXEC] = state;
 		break;
 	case 'x':
 		IF_HUSH_MODE_X(G_x_mode = state;)
@@ -10211,7 +10258,7 @@ int hush_main(int argc, char **argv)
 
 	cached_getpid = getpid();   /* for tcsetpgrp() during init */
 	G.root_pid = cached_getpid; /* for $PID  (NOMMU can override via -$HEXPID:HEXPPID:...) */
-	G.root_ppid = getppid();    /* for $PPID (NOMMU can override)  */
+	G.root_ppid = getppid();    /* for $PPID (NOMMU can override) */
 
 	/* Deal with HUSH_VERSION */
 	debug_printf_env("unsetenv '%s'\n", "HUSH_VERSION");
@@ -10342,6 +10389,29 @@ int hush_main(int argc, char **argv)
 			/* Well, we cannot just declare interactiveness,
 			 * we have to have some stuff (ctty, etc) */
 			/* G_interactive_fd++; */
+//There are a few cases where bash -i -c 'SCRIPT'
+//has visible effect (differs from bash -c 'SCRIPT'):
+//it ignores TERM:
+//	bash -i -c 'kill $$; echo ALIVE'
+//	ALIVE
+//it resets SIG_IGNed HUP to SIG_DFL:
+//	trap '' hup; bash -i -c 'kill -hup $$; echo ALIVE'
+//	Hangup   [the message is not printed by bash, it's the shell which started it]
+//is talkative about jobs and exiting:
+//	bash -i -c 'sleep 1 & exit'
+//	[1] 16170
+//	exit
+//includes $ENV file (only if run as "sh"):
+//	echo last >/tmp/ENV; ENV=/tmp/ENV sh -i -c 'echo HERE'
+//	last: cannot open /var/log/wtmp: No such file or directory
+//	HERE
+//(under "bash", it's the opposite: it runs $BASH_ENV file only *without* -i).
+//
+//ash -i -c 'sleep 3; sleep 3', on ^C, drops into a prompt instead of exiting
+//(this may be a bug, bash does not do this).
+//(ash -i -c 'sleep 3' won't show this, the last command gets auto-"exec"ed)
+//
+//None of the above feel like useful features people would rely on.
 			break;
 		case 's':
 			G.opt_s = 1;
@@ -10604,8 +10674,11 @@ int hush_main(int argc, char **argv)
 
 # if ENABLE_FEATURE_EDITING
 		G.line_input_state = new_line_input_t(FOR_SHELL);
-#  if EDITING_HAS_get_exe_name
+#  if ENABLE_FEATURE_TAB_COMPLETION
 		G.line_input_state->get_exe_name = get_builtin_name;
+#  endif
+#  if EDITING_HAS_sh_get_var
+		G.line_input_state->sh_get_var = get_local_var_value;
 #  endif
 # endif
 # if ENABLE_HUSH_SAVEHISTORY && MAX_HISTORY > 0
@@ -11718,7 +11791,7 @@ static int FAST_FUNC builtin_fg_bg(char **argv)
 	/* TODO: bash prints a string representation
 	 * of job being foregrounded (like "sleep 1 | cat") */
 	if (argv[0][0] == 'f' && G_saved_tty_pgrp) {
-		/* Put the job into the foreground.  */
+		/* Put the job into the foreground. */
 		tcsetpgrp(G_interactive_fd, pi->pgrp);
 	}
 

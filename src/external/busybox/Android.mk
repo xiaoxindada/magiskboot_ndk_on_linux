@@ -1,6 +1,6 @@
 LOCAL_PATH := $(call my-dir)
 VERSION = 1
-PATCHLEVEL = 34
+PATCHLEVEL = 36
 SUBLEVEL = 1
 EXTRAVERSION = -Magisk
 BB_VER = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
@@ -10,7 +10,7 @@ LOCAL_MODULE := busybox
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/include
 LOCAL_STATIC_LIBRARIES := libselinux
 LOCAL_DISABLE_FORMAT_STRING_CHECKS := true
-LOCAL_LDFLAGS := -static -Wl,--wrap=realpath
+LOCAL_LDFLAGS := -static -Wl,--wrap=realpath -Wl,--wrap=rename -Wl,--wrap=renameat
 LOCAL_CFLAGS := \
 -w -include include/autoconf.h -D__USE_BSD -D__USE_GNU \
 -DBB_VER=\"$(BB_VER)\" -DBB_BT=AUTOCONF_TIMESTAMP \
@@ -21,6 +21,7 @@ applets/applets.c \
 archival/ar.c \
 archival/bbunzip.c \
 archival/bzip2.c \
+archival/chksum_and_xwrite_tar_header.c \
 archival/cpio.c \
 archival/gzip.c \
 archival/libarchive/common.c \
@@ -142,6 +143,7 @@ coreutils/touch.c \
 coreutils/tr.c \
 coreutils/true.c \
 coreutils/truncate.c \
+coreutils/tsort.c \
 coreutils/tty.c \
 coreutils/uname.c \
 coreutils/uniq.c \
@@ -221,6 +223,11 @@ libbb/getopt32.c \
 libbb/getopt_allopts.c \
 libbb/getpty.c \
 libbb/hash_md5_sha.c \
+libbb/hash_md5_sha256_x86-32_shaNI.S \
+libbb/hash_md5_sha256_x86-64_shaNI.S \
+libbb/hash_md5_sha_x86-32_shaNI.S \
+libbb/hash_md5_sha_x86-64.S \
+libbb/hash_md5_sha_x86-64_shaNI.S \
 libbb/herror_msg.c \
 libbb/human_readable.c \
 libbb/in_ether.c \
@@ -299,6 +306,7 @@ libbb/vfork_daemon_rexec.c \
 libbb/warn_ignoring_args.c \
 libbb/wfopen.c \
 libbb/wfopen_input.c \
+libbb/wrap_funcs.c \
 libbb/write.c \
 libbb/xatonum.c \
 libbb/xconnect.c \
@@ -309,7 +317,6 @@ libbb/xgetcwd.c \
 libbb/xgethostbyname.c \
 libbb/xreadlink.c \
 libbb/xrealloc_vector.c \
-libbb/xrealpath.c \
 libbb/xregcomp.c \
 libpwdgrp/uidgid_get.c \
 libres/dn_expand.c \
@@ -355,10 +362,12 @@ miscutils/partprobe.c \
 miscutils/raidautorun.c \
 miscutils/rfkill.c \
 miscutils/rx.c \
+miscutils/seedrng.c \
 miscutils/setfattr.c \
 miscutils/setserial.c \
 miscutils/strings.c \
 miscutils/time.c \
+miscutils/tree.c \
 miscutils/ts.c \
 miscutils/ttysize.c \
 miscutils/ubi_tools.c \

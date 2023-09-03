@@ -498,12 +498,20 @@ static NOINLINE unsigned display_single(const struct dnode *dn)
 
 	if (opt & OPT_i) /* show inode# */
 		column += printf("%7llu ", (long long) dn->dn_ino);
-//TODO: -h should affect -s too:
-	if (opt & OPT_s) /* show allocated blocks */
-		column += printf("%6"OFF_FMT"u ", (off_t) (dn->dn_blocks >> 1));
+	if (opt & OPT_s) { /* show allocated blocks */
+		if (opt & OPT_h) {
+			column += printf("%"HUMAN_READABLE_MAX_WIDTH_STR"s ",
+				/* print size, show one fractional, use suffixes */
+				make_human_readable_str((off_t)dn->dn_blocks << 9, 1, 0)
+			);
+		} else {
+			column += printf("%6"OFF_FMT"u ", (off_t)(dn->dn_blocks >> 1));
+		}
+	}
 	if (opt & OPT_l) {
 		/* long listing: show mode */
-		column += printf("%-10s ", (char *) bb_mode_string(dn->dn_mode));
+		char modestr[12];
+		column += printf("%-10s ", bb_mode_string(modestr, dn->dn_mode));
 		/* long listing: show number of links */
 		column += printf("%4lu ", (long) dn->dn_nlink);
 		/* long listing: show user/group */

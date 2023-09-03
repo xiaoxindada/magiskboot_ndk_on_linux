@@ -32,6 +32,9 @@
 # define ADJTIME_PATH "/etc/adjtime"
 #endif
 
+#define STR1(s) #s
+#define STR(s)  STR1(s)
+
 
 #define ar_trivial_usage \
        "x|p|t"IF_FEATURE_AR_CREATE("|r")" [-ov] ARCHIVE [FILE]..." \
@@ -196,7 +199,13 @@
      "\n	-F FILE	Input (-t,-i,-p) or output (-o) file" \
      "\n	-R USER[:GRP]	Set owner of created files" \
      "\n	-L	Dereference symlinks" \
-     "\n	-0	Input is separated by NULs" \
+     "\n	-0	NUL terminated input" \
+	IF_FEATURE_CPIO_IGNORE_DEVNO( \
+     "\n	--ignore-devno" \
+	) \
+	IF_FEATURE_CPIO_RENUMBER_INODES( \
+     "\n	--renumber-inodes" \
+	) \
 
 #define dpkg_trivial_usage \
        "[-ilCPru] [-F OPT] PACKAGE" \
@@ -392,7 +401,7 @@
        "$ tar -cf /tmp/tarball.tar /usr/local\n" \
 
 #define unzip_trivial_usage \
-       "[-lnojpq] FILE[.zip] [FILE]... [-x FILE]... [-d DIR]" \
+       "[-lnojpqK] FILE[.zip] [FILE]... [-x FILE]... [-d DIR]" \
 
 #define unzip_full_usage "\n\n" \
        "Extract FILEs from ZIP archive\n" \
@@ -403,6 +412,7 @@
      "\n	-p	Write to stdout" \
      "\n	-t	Test" \
      "\n	-q	Quiet" \
+     "\n	-K	Do not clear SUID bit" \
      "\n	-x FILE	Exclude FILEs" \
      "\n	-d DIR	Extract into DIR" \
 
@@ -495,7 +505,7 @@
        "" \
 
 #define reset_full_usage "\n\n" \
-       "Reset the screen" \
+       "Reset terminal (ESC codes) and termios (signals, buffering, echo)" \
 
 #define resize_trivial_usage \
        "" \
@@ -539,10 +549,12 @@
      "\n	-s	Display raw scan-codes" \
 
 #define basename_trivial_usage \
-       "FILE [SUFFIX]" \
+       "FILE [SUFFIX] | -a FILE... | -s SUFFIX FILE..." \
 
 #define basename_full_usage "\n\n" \
-       "Strip directory path and .SUFFIX from FILE" \
+       "Strip directory path and SUFFIX from FILE\n" \
+     "\n	-a		All arguments are FILEs" \
+     "\n	-s SUFFIX	Remove SUFFIX (implies -a)" \
 
 #define basename_example_usage \
        "$ basename /usr/local/bin/foo\n" \
@@ -1507,15 +1519,15 @@
      "\n	-u	Remove file" \
 
 #define shuf_trivial_usage \
-       "[-e|-i L-H] [-n NUM] [-o FILE] [-z] [FILE|ARG...]" \
+       "[-n NUM] [-o FILE] [-z] [FILE | -e [ARG...] | -i L-H]" \
 
 #define shuf_full_usage "\n\n" \
        "Randomly permute lines\n" \
-     "\n	-e	Treat ARGs as lines" \
-     "\n	-i L-H	Treat numbers L-H as lines" \
      "\n	-n NUM	Output at most NUM lines" \
      "\n	-o FILE	Write to FILE, not standard output" \
-     "\n	-z	End lines with zero byte, not newline" \
+     "\n	-z	NUL terminated output" \
+     "\n	-e	Treat ARGs as lines" \
+     "\n	-i L-H	Treat numbers L-H as lines" \
 
 #define sleep_trivial_usage \
 	IF_FEATURE_FANCY_SLEEP("[") "N" IF_FEATURE_FANCY_SLEEP("]...") \
@@ -1535,7 +1547,7 @@
 
 #define sort_trivial_usage \
        "[-nru" \
-	IF_FEATURE_SORT_BIG("gMcszbdfiokt] [-o FILE] [-k START[.OFS][OPTS][,END[.OFS][OPTS]] [-t CHAR") \
+	IF_FEATURE_SORT_BIG("ghMcszbdfiokt] [-o FILE] [-k START[.OFS][OPTS][,END[.OFS][OPTS]] [-t CHAR") \
        "] [FILE]..." \
 
 #define sort_full_usage "\n\n" \
@@ -1551,6 +1563,7 @@
      "\n	-n	Sort numbers" \
 	IF_FEATURE_SORT_BIG( \
      "\n	-g	General numerical sort" \
+     "\n	-h	Sort human readable numbers (2K 1G)" \
      "\n	-M	Sort month" \
      "\n	-V	Sort version" \
      "\n	-t CHAR	Field separator" \
@@ -1756,11 +1769,12 @@
        "1\n" \
 
 #define timeout_trivial_usage \
-       "[-s SIG] SECS PROG ARGS" \
+       "[-s SIG] [-k KILL_SECS] SECS PROG ARGS" \
 
 #define timeout_full_usage "\n\n" \
        "Run PROG. Send SIG to it if it is not gone in SECS seconds.\n" \
        "Default SIG: TERM." \
+       "If it still exists in KILL_SECS seconds, send KILL.\n" \
 
 #define touch_trivial_usage \
        "[-ch" IF_FEATURE_TOUCH_SUSV3("am") "]" \
@@ -1818,6 +1832,18 @@
 
 #define truncate_example_usage \
 	"$ truncate -s 1G foo" \
+
+#define tsort_trivial_usage \
+       "[FILE]" \
+
+#define tsort_full_usage "\n\n" \
+       "Topological sort" \
+
+#define tsort_example_usage \
+       "$ echo -e \"a b\\nb c\" | tsort\n" \
+       "a\n" \
+       "b\n" \
+       "c\n" \
 
 #define tty_trivial_usage \
        "" IF_INCLUDE_SUSv2("[-s]") \
@@ -2055,10 +2081,11 @@
      "\n	-q		Quiet" \
 
 #define which_trivial_usage \
-       "COMMAND..." \
+       "[-a] COMMAND..." \
 
 #define which_full_usage "\n\n" \
-       "Locate COMMAND" \
+       "Locate COMMAND\n" \
+     "\n	-a	Show all matches" \
 
 #define which_example_usage \
        "$ which login\n" \
@@ -2143,13 +2170,14 @@
 	) \
 
 #define cmp_trivial_usage \
-       "[-ls] FILE1 [FILE2" IF_DESKTOP(" [SKIP1 [SKIP2]]") "]" \
+       "[-ls] [-n NUM] FILE1 [FILE2" IF_DESKTOP(" [SKIP1 [SKIP2]]") "]" \
 
 #define cmp_full_usage "\n\n" \
        "Compare FILE1 with FILE2 (or stdin)\n" \
      "\n	-l	Write the byte numbers (decimal) and values (octal)" \
      "\n		for all differing bytes" \
      "\n	-s	Quiet" \
+     "\n	-n NUM	Compare at most NUM bytes" \
 
 #define diff_trivial_usage \
        "[-abBdiNqrTstw] [-L LABEL] [-S FILE] [-U LINES] FILE1 FILE2" \
@@ -2173,7 +2201,7 @@
      "\n	-U	Output LINES lines of context" \
      "\n	-w	Ignore all whitespace" \
 
-#define ed_trivial_usage "[FILE]" \
+#define ed_trivial_usage "[-p PROMPT] [-s] [FILE]" \
 
 #define ed_full_usage "" \
 
@@ -2219,7 +2247,7 @@
 #define vi_full_usage "\n\n" \
        "Edit FILE\n" \
 	IF_FEATURE_VI_COLON( \
-     "\n	-c CMD	Initial command to run ($EXINIT also available)" \
+     "\n	-c CMD	Initial command to run ($EXINIT and ~/.exrc also available)" \
 	) \
 	IF_FEATURE_VI_READONLY( \
      "\n	-R	Read-only" \
@@ -2280,15 +2308,30 @@
      "\n	-mtime DAYS	mtime is greater than (+N), less than (-N)," \
      "\n			or exactly N days in the past" \
 	) \
+	IF_FEATURE_FIND_ATIME( \
+     "\n	-atime DAYS	atime +N/-N/N days in the past" \
+	) \
+	IF_FEATURE_FIND_CTIME( \
+     "\n	-ctime DAYS	ctime +N/-N/N days in the past" \
+	) \
 	IF_FEATURE_FIND_MMIN( \
      "\n	-mmin MINS	mtime is greater than (+N), less than (-N)," \
      "\n			or exactly N minutes in the past" \
+	) \
+	IF_FEATURE_FIND_AMIN( \
+     "\n	-amin MINS	atime +N/-N/N minutes in the past" \
+	) \
+	IF_FEATURE_FIND_CMIN( \
+     "\n	-cmin MINS	ctime +N/-N/N minutes in the past" \
 	) \
 	IF_FEATURE_FIND_NEWER( \
      "\n	-newer FILE	mtime is more recent than FILE's" \
 	) \
 	IF_FEATURE_FIND_INUM( \
      "\n	-inum N		File has inode number N" \
+	) \
+	IF_FEATURE_FIND_SAMEFILE( \
+     "\n	-samefile FILE	File is same as FILE" \
 	) \
 	IF_FEATURE_FIND_USER( \
      "\n	-user NAME/ID	File is owned by given user" \
@@ -2363,7 +2406,7 @@
      "\n	-F	PATTERN is a literal (not regexp)" \
      "\n	-E	PATTERN is an extended regexp" \
 	IF_EXTRA_COMPAT( \
-     "\n	-z	Input is NUL terminated" \
+     "\n	-z	NUL terminated input" \
 	) \
      "\n	-m N	Match up to N times per file" \
 	IF_FEATURE_GREP_CONTEXT( \
@@ -2394,11 +2437,12 @@
 #define xargs_full_usage "\n\n" \
        "Run PROG on every item given by stdin\n" \
 	IF_FEATURE_XARGS_SUPPORT_ZERO_TERM( \
-     "\n	-0	Input is separated by NULs" \
+     "\n	-0	NUL terminated input" \
 	) \
 	IF_FEATURE_XARGS_SUPPORT_ARGS_FILE( \
      "\n	-a FILE	Read from FILE instead of stdin" \
 	) \
+     "\n	-o	Reopen stdin as /dev/tty" \
      "\n	-r	Don't run command if input is empty" \
      "\n	-t	Print the command on stderr before execution" \
 	IF_FEATURE_XARGS_SUPPORT_CONFIRMATION( \
@@ -2758,7 +2802,8 @@
 
 #define sulogin_full_usage "\n\n" \
        "Single user login\n" \
-     "\n	-t N	Timeout" \
+     "\n	-p	Start a login shell" \
+     "\n	-t SEC	Timeout" \
 
 #define vlock_trivial_usage \
        "[-a]" \
@@ -3438,6 +3483,15 @@
 #define rx_example_usage \
        "$ rx /tmp/foo\n" \
 
+#define seedrng_trivial_usage \
+	"[-d DIR] [-n]" \
+
+#define seedrng_full_usage "\n\n" \
+	"Seed the kernel RNG from seed files" \
+	"\n" \
+	"\n	-d DIR	Use seed files in DIR (default: /var/lib/seedrng)" \
+	"\n	-n	Do not credit randomness, even if creditable" \
+
 #define setfattr_trivial_usage \
        "[-h] -n|-x ATTR [-v VALUE] FILE..." \
 
@@ -3492,6 +3546,10 @@
      "\n	-f FMT	Custom format" \
      "\n	-o FILE	Write result to FILE" \
      "\n	-a	Append (else overwrite)" \
+
+#define tree_trivial_usage NOUSAGE_STR \
+
+#define tree_full_usage "" \
 
 #define ts_trivial_usage \
        "[-is] [STRFTIME]" \
@@ -3945,9 +4003,9 @@
 #define httpd_full_usage "\n\n" \
        "Listen for incoming HTTP requests\n" \
      "\n	-i		Inetd mode" \
-     "\n	-f		Don't daemonize" \
+     "\n	-f		Run in foreground" \
      "\n	-v[v]		Verbose" \
-     "\n	-p [IP:]PORT	Bind to IP:PORT (default *:80)" \
+     "\n	-p [IP:]PORT	Bind to IP:PORT (default *:"STR(CONFIG_FEATURE_HTTPD_PORT_DEFAULT)")" \
 	IF_FEATURE_HTTPD_SETUID( \
      "\n	-u USER[:GRP]	Set uid/gid after binding to port") \
 	IF_FEATURE_HTTPD_BASIC_AUTH( \
@@ -4011,7 +4069,7 @@
 
 #define ifplugd_full_usage "\n\n" \
        "Network interface plug detection daemon\n" \
-     "\n	-n		Don't daemonize" \
+     "\n	-n		Run in foreground" \
      "\n	-s		Don't log to syslog" \
      "\n	-i IFACE	Interface" \
      "\n	-f/-F		Treat link detection error as link down/link up" \
@@ -4019,6 +4077,7 @@
      "\n	-a		Don't up interface at each link probe" \
      "\n	-M		Monitor creation/destruction of interface" \
      "\n			(otherwise it must exist)" \
+     "\n	-A		Don't up newly appeared interface" \
      "\n	-r PROG		Script to run" \
      "\n	-x ARG		Extra argument for script" \
      "\n	-I		Don't exit on nonzero exit code from script" \
@@ -4087,7 +4146,7 @@
 #define iplink_trivial_usage \
        /*Usage:iplink*/"set IFACE [up|down] [arp on|off] [multicast on|off]\n" \
        "	[promisc on|off] [mtu NUM] [name NAME] [qlen NUM] [address MAC]\n" \
-       "	[master IFACE | nomaster]" \
+       "	[master IFACE | nomaster] [netns PID]" \
 
 #define iplink_full_usage "\n" \
        "iplink add [link IFACE] IFACE [address MAC] type TYPE [ARGS]\n" \
@@ -4398,7 +4457,7 @@
 #define ntpd_full_usage "\n\n" \
        "NTP client/server\n" \
      "\n	-d[d]	Verbose" \
-     "\n	-n	Do not daemonize" \
+     "\n	-n	Run in foreground" \
      "\n	-q	Quit after clock is set" \
      "\n	-N	Run at high priority" \
      "\n	-w	Do not set time (only query peers), implies -n" \
@@ -4448,7 +4507,7 @@
      "\n	-c CNT		Send only CNT pings" \
      "\n	-s SIZE		Send SIZE data bytes in packets (default 56)" \
      "\n	-i SECS		Interval" \
-     "\n	-A		Ping as soon as reply is recevied" \
+     "\n	-A		Ping as soon as reply is received" \
      "\n	-t TTL		Set TTL" \
      "\n	-I IFACE/IP	Source interface or IP address" \
      "\n	-W SEC		Seconds to wait for the first response (default 10)" \
@@ -4466,7 +4525,7 @@
      "\n	-c CNT		Send only CNT pings" \
      "\n	-s SIZE		Send SIZE data bytes in packets (default 56)" \
      "\n	-i SECS		Interval" \
-     "\n	-A		Ping as soon as reply is recevied" \
+     "\n	-A		Ping as soon as reply is received" \
      "\n	-I IFACE/IP	Source interface or IP address" \
      "\n	-W SEC		Seconds to wait for the first response (default 10)" \
      "\n			(after all -c CNT packets are sent)" \
@@ -4641,7 +4700,7 @@
      "\n	-K		Close connection as soon as login exits" \
      "\n			(normally wait until all programs close slave pty)" \
 	IF_FEATURE_TELNETD_STANDALONE( \
-     "\n	-p PORT		Port to listen on" \
+     "\n	-p PORT		Port to listen on. Default "STR(CONFIG_FEATURE_TELNETD_PORT_DEFAULT) \
      "\n	-b ADDR[:PORT]	Address to bind to" \
      "\n	-F		Run in foreground" \
      "\n	-i		Inetd mode" \
@@ -4773,7 +4832,8 @@
 
 #define wget_trivial_usage \
 	IF_FEATURE_WGET_LONG_OPTIONS( \
-       "[-cqS] [--spider] [-O FILE] [-o LOGFILE] [--header 'HEADER: VALUE'] [-Y on/off]\n" \
+       "[-cqS] [--spider] [-O FILE] [-o LOGFILE] [--header STR]\n" \
+       "	[--post-data STR | --post-file FILE] [-Y on/off]\n" \
        "	"IF_FEATURE_WGET_OPENSSL("[--no-check-certificate] ")"[-P DIR] [-U AGENT]"IF_FEATURE_WGET_TIMEOUT(" [-T SEC]")" URL..." \
 	) \
 	IF_NOT_FEATURE_WGET_LONG_OPTIONS( \
@@ -4784,6 +4844,9 @@
        "Retrieve files via HTTP or FTP\n" \
 	IF_FEATURE_WGET_LONG_OPTIONS( \
      "\n	--spider	Only check URL existence: $? is 0 if exists" \
+     "\n	--header STR	Add STR (of form 'header: value') to headers" \
+     "\n	--post-data STR	Send STR using POST method" \
+     "\n	--post-file FILE	Send FILE using POST method" \
 	IF_FEATURE_WGET_OPENSSL( \
      "\n	--no-check-certificate	Don't validate the server's certificate" \
 	) \
@@ -4956,6 +5019,8 @@
      "\n		(displays: S:system U:user N:niced D:iowait I:irq i:softirq)" \
      "\n %[nINTERFACE]	Network INTERFACE" \
      "\n %m		Allocated memory" \
+     "\n %[md]		Dirty file-backed memory" \
+     "\n %[mw]		Memory being written to storage" \
      "\n %[mf]		Free memory" \
      "\n %[mt]		Total memory" \
      "\n %s		Allocated swap" \
@@ -4985,7 +5050,7 @@
      "\n	-P	Match parent process ID" \
 
 #define pkill_trivial_usage \
-       "[-l|-SIGNAL] [-xfvno] [-s SID|-P PPID|PATTERN]" \
+       "[-l|-SIGNAL] [-xfvnoe] [-s SID|-P PPID|PATTERN]" \
 
 #define pkill_full_usage "\n\n" \
        "Send signal to processes selected by regex PATTERN\n" \
@@ -4997,6 +5062,7 @@
      "\n	-v	Negate the match" \
      "\n	-n	Signal the newest process only" \
      "\n	-o	Signal the oldest process only" \
+     "\n	-e	Display name and PID of the process being killed" \
 
 #if (ENABLE_FEATURE_PIDOF_SINGLE || ENABLE_FEATURE_PIDOF_OMIT) \
 
@@ -5479,7 +5545,7 @@
        "Change boolean setting" \
 
 #define ash_trivial_usage \
-	"[-il] [-|+Cabefmnuvx] [-|+o OPT]... [-c 'SCRIPT' [ARG0 ARGS] | FILE [ARGS] | -s [ARGS]]" \
+	"[-il] [-|+Cabefmnuvx] [-|+o OPT]... [-c 'SCRIPT' [ARG0 ARGS] | FILE ARGS | -s ARGS]" \
 
 #define ash_full_usage "\n\n" \
 	"Unix shell interpreter" \
@@ -5497,7 +5563,7 @@
      "\n	setsid cttyhack sh" \
 
 #define hush_trivial_usage \
-	"[-enxl] [-c 'SCRIPT' [ARG0 ARGS] | FILE [ARGS] | -s [ARGS]]" \
+	"[-enxl] [-c 'SCRIPT' [ARG0 ARGS] | FILE ARGS | -s ARGS]" \
 
 #define hush_full_usage "\n\n" \
 	"Unix shell interpreter" \
@@ -5597,10 +5663,10 @@
        "[-o OFS] [-l LEN] [-s] DEVICE" \
 
 #define blkdiscard_full_usage "\n\n" \
-	"Discard sectors on DEVICE\n" \
-	"\n	-o OFS	Byte offset into device" \
-	"\n	-l LEN	Number of bytes to discard" \
-	"\n	-s	Perform a secure discard" \
+       "Discard sectors on DEVICE\n" \
+     "\n	-o OFS	Byte offset into device" \
+     "\n	-l LEN	Number of bytes to discard" \
+     "\n	-s	Perform a secure discard" \
 
 #define blkdiscard_example_usage \
 	"$ blkdiscard -o 0 -l 1G /dev/sdb" \
@@ -5629,11 +5695,12 @@
      "\n	--rereadpt	Reread partition table" \
 
 #define cal_trivial_usage \
-       "[-jy] [[MONTH] YEAR]" \
+       "[-jmy] [[MONTH] YEAR]" \
 
 #define cal_full_usage "\n\n" \
        "Display a calendar\n" \
      "\n	-j	Use julian dates" \
+     "\n	-m	Week starts on Monday" \
      "\n	-y	Display the entire year" \
 
 #define chrt_trivial_usage \
@@ -5886,7 +5953,7 @@
        "hd is an alias for hexdump -C" \
 
 #define xxd_trivial_usage \
-       "[-pri] [-g N] [-c N] [-n LEN] [-s OFS] [-o OFS] [FILE]" \
+       "[-pri] [-g N] [-c N] [-l LEN] [-s OFS] [-o OFS] [FILE]" \
 
 #define xxd_full_usage "\n\n" \
        "Hex dump FILE (or stdin)\n" \
@@ -6005,12 +6072,12 @@
        "[-vS] " IF_FEATURE_MDEV_DAEMON("{ ") "[-s]" IF_FEATURE_MDEV_DAEMON(" | [-df] }") \
 
 #define mdev_full_usage "\n\n" \
-       "	-v	verbose\n" \
-       "	-S	log to syslog too\n" \
-       "	-s	scan /sys and populate /dev\n" \
+       "	-v	Verbose\n" \
+       "	-S	Log to syslog too\n" \
+       "	-s	Scan /sys and populate /dev\n" \
 	IF_FEATURE_MDEV_DAEMON( \
-       "	-d	daemon, listen on netlink\n" \
-       "	-f	stay in foreground\n" \
+       "	-d	Daemon, listen on netlink\n" \
+       "	-f	Run in foreground\n" \
 	) \
        "\n" \
        "Bare mdev is a kernel hotplug helper. To activate it:\n" \
@@ -6473,7 +6540,7 @@
 #define udhcpc6_full_usage "\n" \
      "\n	-i IFACE	Interface to use (default "CONFIG_UDHCPC_DEFAULT_INTERFACE")" \
      "\n	-p FILE		Create pidfile" \
-     "\n	-s PROG		Run PROG at DHCP events (default "CONFIG_UDHCPC_DEFAULT_SCRIPT")" \
+     "\n	-s PROG		Run PROG at DHCP events (default "CONFIG_UDHCPC6_DEFAULT_SCRIPT")" \
      "\n	-B		Request broadcast replies" \
      "\n	-t N		Send up to N discover packets" \
      "\n	-T SEC		Pause between packets (default 3)" \
@@ -6565,7 +6632,7 @@
      "\n	USR2	Release lease" \
 
 #define udhcpd_trivial_usage \
-       "[-fS] [-I ADDR]" IF_FEATURE_UDHCP_PORT(" [-P PORT]") " [CONFFILE]" \
+       "[-fS] [-I ADDR] [-a MSEC]" IF_FEATURE_UDHCP_PORT(" [-P PORT]") " [CONFFILE]" \
 
 #define udhcpd_full_usage "\n\n" \
        "DHCP server\n" \
@@ -6583,7 +6650,8 @@
        "CLIENT_IFACE[,CLIENT_IFACE2]... SERVER_IFACE [SERVER_IP]" \
 
 #define dhcprelay_full_usage "\n\n" \
-       "Relay DHCP requests between clients and server" \
+       "Relay DHCP requests between clients and server.\n" \
+       "Without SERVER_IP, requests are broadcast on SERVER_IFACE." \
 
 #define dumpleases_trivial_usage \
        "[-r|-a] [-d] [-f LEASEFILE]" \

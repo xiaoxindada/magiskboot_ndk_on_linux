@@ -18,7 +18,7 @@
 
 //applet:IF_ED(APPLET(ed, BB_DIR_BIN, BB_SUID_DROP))
 
-//usage:#define ed_trivial_usage "[FILE]"
+//usage:#define ed_trivial_usage "[-p PROMPT] [-s] [FILE]"
 //usage:#define ed_full_usage ""
 
 #include "libbb.h"
@@ -48,6 +48,7 @@ struct globals {
 	char *bufBase;
 	char *bufPtr;
 	char *fileName;
+	const char *prompt;
 	LINE lines;
 	smallint dirty;
 	int marks[26];
@@ -57,6 +58,7 @@ struct globals {
 #define bufBase            (G.bufBase           )
 #define bufPtr             (G.bufPtr            )
 #define fileName           (G.fileName          )
+#define prompt             (G.prompt            )
 #define curNum             (G.curNum            )
 #define lastNum            (G.lastNum           )
 #define bufUsed            (G.bufUsed           )
@@ -68,6 +70,11 @@ struct globals {
 	setup_common_bufsiz(); \
 	SET_PTR_TO_GLOBALS(xzalloc(sizeof(G))); \
 } while (0)
+
+#define OPTION_STR "sp:"
+enum {
+	OPT_s = (1 << 0),
+};
 
 static int bad_nums(int num1, int num2, const char *for_what)
 {
@@ -380,7 +387,8 @@ static void addLines(int num)
 static int readLines(const char *file, int num)
 {
 	int fd, cc;
-	int len, lineCount, charCount;
+	int len;
+	unsigned charCount;
 	char *cp;
 
 	if ((num < 1) || (num > lastNum + 1)) {
@@ -396,12 +404,8 @@ static int readLines(const char *file, int num)
 
 	bufPtr = bufBase;
 	bufUsed = 0;
-	lineCount = 0;
 	charCount = 0;
 	cc = 0;
-
-	printf("\"%s\", ", file);
-	fflush_all();
 
 	do {
 		cp = memchr(bufPtr, '\n', bufUsed);
@@ -415,7 +419,6 @@ static int readLines(const char *file, int num)
 			bufPtr += len;
 			bufUsed -= len;
 			charCount += len;
-			lineCount++;
 			num++;
 			continue;
 		}
@@ -449,15 +452,19 @@ static int readLines(const char *file, int num)
 			close(fd);
 			return -1;
 		}
-		lineCount++;
 		charCount += bufUsed;
 	}
 
 	close(fd);
 
-	printf("%d lines%s, %d chars\n", lineCount,
-		(bufUsed ? " (incomplete)" : ""), charCount);
-
+	/* https://pubs.opengroup.org/onlinepubs/9699919799/utilities/ed.html
+	 * "Read Command"
+	 * "...the number of bytes read shall be written to standard output
+	 * in the following format:
+	 * "%d\n", <number of bytes read>
+	 */
+	if (!(option_mask32 & OPT_s))
+		printf("%u\n", charCount);
 	return TRUE;
 }
 
@@ -468,12 +475,12 @@ static int readLines(const char *file, int num)
 static int writeLines(const char *file, int num1, int num2)
 {
 	LINE *lp;
-	int fd, lineCount, charCount;
+	int fd;
+	unsigned charCount;
 
 	if (bad_nums(num1, num2, "write"))
 		return FALSE;
 
-	lineCount = 0;
 	charCount = 0;
 
 	fd = creat(file, 0666);
@@ -481,9 +488,6 @@ static int writeLines(const char *file, int num1, int num2)
 		bb_simple_perror_msg(file);
 		return FALSE;
 	}
-
-	printf("\"%s\", ", file);
-	fflush_all();
 
 	lp = findLine(num1);
 	if (lp == NULL) {
@@ -498,7 +502,6 @@ static int writeLines(const char *file, int num1, int num2)
 			return FALSE;
 		}
 		charCount += lp->len;
-		lineCount++;
 		lp = lp->next;
 	}
 
@@ -507,7 +510,14 @@ static int writeLines(const char *file, int num1, int num2)
 		return FALSE;
 	}
 
-	printf("%d lines, %d chars\n", lineCount, charCount);
+	/* https://pubs.opengroup.org/onlinepubs/9699919799/utilities/ed.html
+	 * "Write Command"
+	 * "...the number of bytes written shall be written to standard output,
+	 * unless the -s option was specified, in the following format:
+	 * "%d\n", <number of bytes written>
+	 */
+	if (!(option_mask32 & OPT_s))
+		printf("%u\n", charCount);
 	return TRUE;
 }
 
@@ -710,7 +720,7 @@ static void subCommand(const char *cmd, int num1, int num2)
 		if (deltaLen <= 0) {
 			memcpy(&lp->data[offset], newStr, newLen);
 			if (deltaLen) {
-				memcpy(&lp->data[offset + newLen],
+				memmove(&lp->data[offset + newLen],
 					&lp->data[offset + oldLen],
 					lp->len - offset - oldLen);
 
@@ -789,7 +799,7 @@ static void doCommands(void)
 		 * 0  on ctrl-C,
 		 * >0 length of input string, including terminating '\n'
 		 */
-		len = read_line_input(NULL, ": ", buf, sizeof(buf));
+		len = read_line_input(NULL, prompt, buf, sizeof(buf));
 		if (len <= 0)
 			return;
 		while (len && isspace(buf[--len]))
@@ -1001,13 +1011,15 @@ int ed_main(int argc UNUSED_PARAM, char **argv)
 	lines.next = &lines;
 	lines.prev = &lines;
 
-	if (argv[1]) {
-		fileName = xstrdup(argv[1]);
+	prompt = ""; /* no prompt by default */
+	getopt32(argv, OPTION_STR, &prompt);
+	argv += optind;
+
+	if (argv[0]) {
+		fileName = xstrdup(argv[0]);
 		if (!readLines(fileName, 1)) {
 			return EXIT_SUCCESS;
 		}
-		if (lastNum)
-			setCurNum(1);
 		dirty = FALSE;
 	}
 

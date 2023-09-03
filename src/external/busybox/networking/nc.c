@@ -216,7 +216,7 @@ int nc_main(int argc, char **argv)
 				close(sfd);
 		} else {
 			cfd = create_and_connect_stream_or_die(argv[0],
-				argv[1] ? bb_lookup_port(argv[1], "tcp", 0) : 0);
+				bb_lookup_port(argv[1], "tcp", 0));
 		}
 	}
 
@@ -268,7 +268,7 @@ int nc_main(int argc, char **argv)
 				nread = safe_read(pfds[fdidx].fd, iobuf, COMMON_BUFSIZE);
 				if (fdidx != 0) {
 					if (nread < 1)
-						exit(EXIT_SUCCESS);
+						exit_SUCCESS();
 					ofd = STDOUT_FILENO;
 				} else {
 					if (nread < 1) {

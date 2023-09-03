@@ -135,10 +135,6 @@ enum {
 	              : 0x7ff0
 };
 
-#if ENABLE_USERNAME_OR_HOMEDIR
-static const char null_str[] ALIGN1 = "";
-#endif
-
 /* We try to minimize both static and stack usage. */
 struct lineedit_statics {
 	line_input_t *state;
@@ -161,12 +157,13 @@ struct lineedit_statics {
 
 #if ENABLE_USERNAME_OR_HOMEDIR
 	char *user_buf;
-	char *home_pwd_buf; /* = (char*)null_str; */
+	char *home_pwd_buf;
+	smallint got_user_strings;
 #endif
 
 #if ENABLE_FEATURE_TAB_COMPLETION
-	char **matches;
 	unsigned num_matches;
+	char **matches;
 #endif
 
 #if ENABLE_FEATURE_EDITING_WINCH
@@ -207,8 +204,9 @@ extern struct lineedit_statics *BB_GLOBAL_CONST lineedit_ptr_to_statics;
 #define prompt_last_line (S.prompt_last_line)
 #define user_buf         (S.user_buf        )
 #define home_pwd_buf     (S.home_pwd_buf    )
-#define matches          (S.matches         )
+#define got_user_strings (S.got_user_strings)
 #define num_matches      (S.num_matches     )
+#define matches          (S.matches         )
 #define delptr           (S.delptr          )
 #define newdelflag       (S.newdelflag      )
 #define delbuf           (S.delbuf          )
@@ -226,13 +224,58 @@ static void deinit_S(void)
 #endif
 #if ENABLE_USERNAME_OR_HOMEDIR
 	free(user_buf);
-	if (home_pwd_buf != null_str)
-		free(home_pwd_buf);
+	free(home_pwd_buf);
 #endif
 	free(lineedit_ptr_to_statics);
 }
 #define DEINIT_S() deinit_S()
 
+
+#if ENABLE_USERNAME_OR_HOMEDIR
+/* Call getpwuid() only if necessary.
+ * E.g. if PS1=':', no user database reading is needed to generate prompt.
+ * (Unfortunately, default PS1='\w \$' needs it, \w abbreviates homedir
+ * as ~/... - for that it needs to *know* the homedir...)
+ */
+static void get_user_strings(void)
+{
+	struct passwd *entry;
+
+	got_user_strings = 1;
+	entry = getpwuid(geteuid());
+	if (entry) {
+		user_buf = xstrdup(entry->pw_name);
+		home_pwd_buf = xstrdup(entry->pw_dir);
+	}
+}
+
+static NOINLINE const char *get_homedir_or_NULL(void)
+{
+	const char *home;
+
+# if ENABLE_SHELL_ASH || ENABLE_SHELL_HUSH
+	home = state && state->sh_get_var ? state->sh_get_var("HOME") : getenv("HOME");
+# else
+	home = getenv("HOME");
+# endif
+	if (home != NULL && home[0] != '\0')
+		return home;
+
+	if (!got_user_strings)
+		get_user_strings();
+	return home_pwd_buf;
+}
+#endif
+
+#if ENABLE_FEATURE_EDITING_FANCY_PROMPT
+static const char *get_username_str(void)
+{
+	if (!got_user_strings)
+		get_user_strings();
+	return user_buf ? user_buf : "";
+	/* btw, bash uses "I have no name!" string if uid has no entry */
+}
+#endif
 
 #if ENABLE_UNICODE_SUPPORT
 static size_t load_string(const char *src)
@@ -691,11 +734,11 @@ static char *username_path_completion(char *ud)
 {
 	struct passwd *entry;
 	char *tilde_name = ud;
-	char *home = NULL;
+	const char *home = NULL;
 
 	ud++; /* skip ~ */
 	if (*ud == '/') {       /* "~/..." */
-		home = home_pwd_buf;
+		home = get_homedir_or_NULL();
 	} else {
 		/* "~user/..." */
 		ud = strchr(ud, '/');
@@ -782,8 +825,8 @@ static unsigned path_parse(char ***p)
 		res[npth++] = tmp;
 	}
 	/* special case: "match subdirectories of the current directory" */
-	/*res[npth++] = NULL; - filled by xzalloc() */
-	return npth;
+	/*res[npth] = NULL; - filled by xzalloc() */
+	return npth + 1;
 }
 
 /* Complete command, directory or file name.
@@ -830,7 +873,7 @@ static NOINLINE unsigned complete_cmd_dir_file(const char *command, int type)
 				continue;
 		}
 # endif
-# if EDITING_HAS_get_exe_name
+# if ENABLE_SHELL_ASH || ENABLE_SHELL_HUSH
 		if (state->get_exe_name) {
 			i = 0;
 			for (;;) {
@@ -1132,7 +1175,16 @@ static void showfiles(void)
 
 static const char *is_special_char(char c)
 {
-	return strchr(" `\"#$%^&*()=+{}[]:;'|\\<>", c);
+	// {: It's mandatory to escape { only if entire name is "{"
+	// (otherwise it's not special. Example: file named "{ "
+	// can be escaped simply as "{\ "; "{a" or "a{" need no escaping),
+	// or if shell supports brace expansion
+	// (ash doesn't, hush optionally does).
+	// (): unlike {, shell treats () specially even in contexts
+	// where they clearly are not valid (e.g. "echo )" is an error).
+	// #: needs escaping to not start a shell comment.
+	return strchr(" `'\"\\#$~?*[{()&;|<>", c);
+	// Used to also have %^=+}]: but not necessary to escape?
 }
 
 static char *quote_special_chars(char *found)
@@ -1752,7 +1804,7 @@ vi_back_motion(void)
 			input_backward(1);
 	}
 }
-#endif
+#endif /* ENABLE_FEATURE_EDITING_VI */
 
 /* Modelled after bash 4.0 behavior of Ctrl-<arrow> */
 static void ctrl_left(void)
@@ -1853,7 +1905,7 @@ static void ask_terminal(void)
 	}
 }
 #else
-#define ask_terminal() ((void)0)
+# define ask_terminal() ((void)0)
 #endif
 
 /* Note about multi-line PS1 (e.g. "\n\w \u@\h\n> ") and prompt redrawing:
@@ -1962,7 +2014,7 @@ static void parse_and_put_prompt(const char *prmt_ptr)
 
 				switch (c) {
 				case 'u':
-					pbuf = user_buf ? user_buf : (char*)"";
+					pbuf = (char*)get_username_str();
 					break;
 				case 'H':
 				case 'h':
@@ -1984,14 +2036,21 @@ static void parse_and_put_prompt(const char *prmt_ptr)
 				case 'w': /* current dir */
 				case 'W': /* basename of cur dir */
 					if (!cwd_buf) {
+						const char *home;
+# if EDITING_HAS_sh_get_var
+						cwd_buf = state && state->sh_get_var
+							? xstrdup(state->sh_get_var("PWD"))
+							: xrealloc_getcwd_or_warn(NULL);
+# else
 						cwd_buf = xrealloc_getcwd_or_warn(NULL);
+# endif
 						if (!cwd_buf)
 							cwd_buf = (char *)bb_msg_unknown;
-						else if (home_pwd_buf[0]) {
+						else if ((home = get_homedir_or_NULL()) != NULL && home[0]) {
 							char *after_home_user;
 
 							/* /home/user[/something] -> ~[/something] */
-							after_home_user = is_prefixed_with(cwd_buf, home_pwd_buf);
+							after_home_user = is_prefixed_with(cwd_buf, home);
 							if (after_home_user
 							 && (*after_home_user == '/' || *after_home_user == '\0')
 							) {
@@ -2047,7 +2106,7 @@ static void parse_and_put_prompt(const char *prmt_ptr)
 			if (c == '\n')
 				cmdedit_prmt_len = 0;
 			else if (flg_not_length != ']') {
-#if ENABLE_UNICODE_SUPPORT
+# if ENABLE_UNICODE_SUPPORT
 				if (n == 1) {
 					/* Only count single-byte characters and the first of multi-byte characters */
 					if ((unsigned char)*pbuf < 0x80  /* single byte character */
@@ -2058,9 +2117,9 @@ static void parse_and_put_prompt(const char *prmt_ptr)
 				} else {
 					cmdedit_prmt_len += unicode_strwidth(pbuf);
 				}
-#else
+# else
 				cmdedit_prmt_len += n;
-#endif
+# endif
 			}
 		}
 		prmt_mem_ptr = strcat(xrealloc(prmt_mem_ptr, prmt_size+1), pbuf);
@@ -2114,17 +2173,41 @@ static int lineedit_read_key(char *read_key_buffer, int timeout)
 #endif
 
 	fflush_all();
-	while (1) {
+	for (;;) {
 		/* Wait for input. TIMEOUT = -1 makes read_key wait even
 		 * on nonblocking stdin, TIMEOUT = 50 makes sure we won't
 		 * insist on full MB_CUR_MAX buffer to declare input like
 		 * "\xff\n",pause,"ls\n" invalid and thus won't lose "ls".
 		 *
+		 * If LI_INTERRUPTIBLE, return -1 if got EINTR in poll()
+		 * inside read_key, or if bb_got_signal != 0 (IOW: if signal
+		 * arrived before poll() is reached).
+		 *
 		 * Note: read_key sets errno to 0 on success.
 		 */
-		IF_FEATURE_EDITING_WINCH(S.ok_to_redraw = 1;)
-		ic = read_key(STDIN_FILENO, read_key_buffer, timeout);
-		IF_FEATURE_EDITING_WINCH(S.ok_to_redraw = 0;)
+		for (;;) {
+			if ((state->flags & LI_INTERRUPTIBLE) && bb_got_signal) {
+				errno = EINTR;
+				return -1;
+			}
+//FIXME: still races here with signals, but small window to poll() inside read_key
+			IF_FEATURE_EDITING_WINCH(S.ok_to_redraw = 1;)
+			/* errno = 0; - read_key does this itself */
+			ic = read_key(STDIN_FILENO, read_key_buffer, timeout);
+			IF_FEATURE_EDITING_WINCH(S.ok_to_redraw = 0;)
+			if (errno != EINTR)
+				break;
+			if (state->flags & LI_INTERRUPTIBLE) {
+				/* LI_INTERRUPTIBLE bails out on EINTR,
+				 * but nothing really guarantees that bb_got_signal
+				 * is nonzero. Follow the least surprise principle:
+				 */
+				if (bb_got_signal == 0)
+					bb_got_signal = 255;
+				goto ret;
+			}
+		}
+
 		if (errno) {
 #if ENABLE_UNICODE_SUPPORT
 			if (errno == EAGAIN && unicode_idx != 0)
@@ -2192,7 +2275,7 @@ static int lineedit_read_key(char *read_key_buffer, int timeout)
 #endif
 		break;
 	}
-
+ ret:
 	return ic;
 }
 
@@ -2287,7 +2370,7 @@ static int32_t reverse_i_search(int timeout)
 			}
 
 			/* Append this char */
-#if ENABLE_UNICODE_SUPPORT
+# if ENABLE_UNICODE_SUPPORT
 			if (unicode_status == UNICODE_ON) {
 				mbstate_t mbstate = { 0 };
 				char buf[MB_CUR_MAX + 1];
@@ -2298,7 +2381,7 @@ static int32_t reverse_i_search(int timeout)
 						strcpy(match_buf + match_buf_len, buf);
 				}
 			} else
-#endif
+# endif
 			if (match_buf_len < sizeof(match_buf) - 1) {
 				match_buf[match_buf_len] = ic;
 				match_buf[match_buf_len + 1] = '\0';
@@ -2350,7 +2433,7 @@ static int32_t reverse_i_search(int timeout)
 
 	return ic;
 }
-#endif
+#endif /* ENABLE_FEATURE_REVERSE_SEARCH */
 
 #if ENABLE_FEATURE_EDITING_WINCH
 static void sigaction2(int sig, struct sigaction *act)
@@ -2390,7 +2473,6 @@ int FAST_FUNC read_line_input(line_input_t *st, const char *prompt, char *comman
 	//command_len = 0; - done by INIT_S()
 	//cmdedit_y = 0;  /* quasireal y, not true if line > xt*yt */
 	cmdedit_termw = 80;
-	IF_USERNAME_OR_HOMEDIR(home_pwd_buf = (char*)null_str;)
 	IF_FEATURE_EDITING_VI(delptr = delbuf;)
 
 	n = get_termios_and_make_raw(STDIN_FILENO, &new_settings, &initial_settings, 0
@@ -2449,18 +2531,6 @@ int FAST_FUNC read_line_input(line_input_t *st, const char *prompt, char *comman
 #define command command_must_not_be_used
 
 	tcsetattr_stdin_TCSANOW(&new_settings);
-
-#if ENABLE_USERNAME_OR_HOMEDIR
-	{
-		struct passwd *entry;
-
-		entry = getpwuid(geteuid());
-		if (entry) {
-			user_buf = xstrdup(entry->pw_name);
-			home_pwd_buf = xstrdup(entry->pw_dir);
-		}
-	}
-#endif
 
 #if 0
 	for (i = 0; i <= state->max_history; i++)
