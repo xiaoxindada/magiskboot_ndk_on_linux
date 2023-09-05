@@ -17,28 +17,28 @@ import wget
 
 def parse_props(file):
     props = {}
-    with open(file, 'r') as f:
-        for line in [l.strip(' \t\r\n') for l in f]:
-            if line.startswith('#') or len(line) == 0:
+    with open(file, "r") as f:
+        for line in [l.strip(" \t\r\n") for l in f]:
+            if line.startswith("#") or len(line) == 0:
                 continue
-            prop = line.split('=')
+            prop = line.split("=")
             if len(prop) != 2:
                 continue
-            value = prop[1].strip(' \t\r\n')
+            value = prop[1].strip(" \t\r\n")
             if len(value) == 0:
                 continue
-            props[prop[0].strip(' \t\r\n')] = value
+            props[prop[0].strip(" \t\r\n")] = value
     return props
 
 
 def load_config():
     for key, value in parse_props("magisk_config.prop").items():
-        if key.startswith('magisk.'):
+        if key.startswith("magisk."):
             config[key[7:]] = value
 
 
 def error(str):
-    print(f'\n\033[41m{str}\033[0m\n')
+    print(f"\n\033[41m{str}\033[0m\n")
     sys.exit(1)
 
 
@@ -99,11 +99,20 @@ def system(cmd):
 
 
 def cmd_out(cmd, env=None):
-    return subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env).stdout.strip().decode("utf-8")
+    return (
+        subprocess.run(
+            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env
+        )
+        .stdout.strip()
+        .decode("utf-8")
+    )
 
 
-LOCALDIR = op.realpath('.')
+LOCALDIR = op.realpath(".")
+is_windows = os.name == "nt"
+EXE_EXT = ".exe" if is_windows else ""
 cpu_count = multiprocessing.cpu_count()
+os_name = platform.system().lower()
 archs = ["armeabi-v7a", "x86", "arm64-v8a", "x86_64"]
 triples = [
     "armv7a-linux-androideabi",
@@ -116,8 +125,8 @@ ndk_root = op.join(LOCALDIR, "ndk")
 ndk_build = op.join(ndk_root, "ndk-build")
 rust_bin = op.join(ndk_root, "toolchains", "rust", "bin")
 cargo = op.join(rust_bin, "cargo")
-local_cargo_root = op.join(LOCALDIR, '.cargo')
-cxxbridge = op.join(local_cargo_root, 'bin', 'cxxbridge')
+local_cargo_root = op.join(LOCALDIR, ".cargo")
+cxxbridge = op.join(local_cargo_root, "bin", "cxxbridge")
 native_gen_path = op.realpath(op.join(LOCALDIR, "generated"))
 release = True
 config = {}
@@ -170,62 +179,71 @@ def write_if_diff(file_name, text):
     rm(file_name)
     do_write = True
     if op.exists(file_name):
-        with open(file_name, 'r') as f:
+        with open(file_name, "r") as f:
             orig = f.read()
         do_write = orig != text
     if do_write:
-        with open(file_name, 'w') as f:
+        with open(file_name, "w") as f:
             print("Write %s" % file_name)
             f.write(text)
 
 
 def dump_flags_header():
-    flag_txt = textwrap.dedent('''\
+    flag_txt = textwrap.dedent(
+        """\
         #pragma once
         #define quote(s)            #s
         #define str(s)              quote(s)
         #define MAGISK_FULL_VER     MAGISK_VERSION "(" str(MAGISK_VER_CODE) ")"
         #define NAME_WITH_VER(name) str(name) " " MAGISK_FULL_VER
-        ''')
+        """
+    )
     flag_txt += f'#define MAGISK_VERSION      "{config["version"]}"\n'
     flag_txt += f'#define MAGISK_VER_CODE     {config["versionCode"]}\n'
-    flag_txt += f'#define MAGISK_DEBUG        {0 if release else 1}\n'
+    flag_txt += f"#define MAGISK_DEBUG        {0 if release else 1}\n"
 
     mkdir_p(native_gen_path)
-    write_if_diff(op.join(native_gen_path, 'flags.h'), flag_txt)
+    write_if_diff(op.join(native_gen_path, "flags.h"), flag_txt)
 
 
-def run_cargo_build():
-    os.chdir(op.join(LOCALDIR, 'src'))
-    targets = set(rust_targets)
-
-    env = os.environ.copy()
-    env['CARGO_BUILD_RUSTC'] = op.join(rust_bin, 'rustc')
-
-    # Start building the actual build commands
-    cmds = [cargo, 'build']
-    for target in targets:
-        cmds.append('-p')
-        cmds.append(target)
-    if release:
-        cmds.append('-r')
-        rust_out = 'release'
-    else:
-        rust_out = 'debug'
-
-    os_name = platform.system().lower()
+def run_cargo(cmds, triple="aarch64-linux-android"):
     llvm_bin = op.join(
         ndk_root, "toolchains", "llvm", "prebuilt", f"{os_name}-x86_64", "bin"
     )
-    env["TARGET_CC"] = op.join(llvm_bin, "clang")
+    env = os.environ.copy()
+    env["PATH"] = f'{rust_bin}{os.pathsep}{env["PATH"]}'
+    env["CARGO_BUILD_RUSTC"] = op.join(rust_bin, "rustc" + EXE_EXT)
     env["RUSTFLAGS"] = "-Clinker-plugin-lto"
+    env["TARGET_CC"] = op.join(llvm_bin, "clang" + EXE_EXT)
+    env["TARGET_CFLAGS"] = f"--target={triple}23"
+    return execv([cargo, *cmds], env)
+
+
+def run_cargo_build():
+    targets = set(rust_targets)
+
+    if len(targets) == 0:
+        return
+
+    # Start building the actual build commands
+    cmds = ["build"]
+    for target in targets:
+        cmds.append("-p")
+        cmds.append(target)
+    rust_out = "debug"
+    if release:
+        cmds.append("-r")
+        rust_out = "release"
+
+    cmds.append("--target")
+    cmds.append("")
+
     for arch, triple in zip(archs, triples):
-        env["TARGET_CFLAGS"] = f"--target={triple}23"
         rust_triple = (
-            "thumbv7neon-linux-androideabi" if triple.startswith(
-                "armv7") else triple
+            "thumbv7neon-linux-androideabi" if triple.startswith("armv7") else triple
         )
-        proc = execv([*cmds, "--target", rust_triple], env)
+        cmds[-1] = rust_triple
+        proc = run_cargo(cmds, triple)
         if proc.returncode != 0:
             error("Build binary failed!")
 
@@ -236,17 +254,15 @@ def run_cargo_build():
             target = op.join(arch_out, f"lib{tgt}-rs.a")
             mv(source, target)
 
-    os.chdir(LOCALDIR)
-
 
 def setup_ndk():
     os_name = platform.system().lower()
-    url = f"https://github.com/topjohnwu/ondk/releases/download/{config['ondkVersion']}/ondk-{config['ondkVersion']}-{os_name}.tar.gz"
+    url = f"https://github.com/topjohnwu/ondk/releases/download/{config['ondkVersion']}/ondk-{config['ondkVersion']}-{os_name}.tar.xz"
     ndk_archive = url.split("/")[-1]
     print(f"Downloading {ndk_archive}")
     wget.download(url, ndk_archive)
     print(f"Extracting {ndk_archive}")
-    with tarfile.open(ndk_archive, mode="r|gz") as tar:
+    with tarfile.open(ndk_archive, mode="r|xz") as tar:
         tar.extractall(LOCALDIR)
     if op.exists(f"ondk-{config['ondkVersion']}"):
         rm_rf(ndk_root)
@@ -269,14 +285,16 @@ def setup_ndk():
         )
         if not op.exists(lib_dir):
             continue
-        src_dir = op.join(LOCALDIR, "ndk-bins", arch)
+        src_dir = op.join(LOCALDIR, "tools", "ndk-bins", arch)
         cp_rf(src_dir, lib_dir)
 
 
 def run_ndk_build(flags):
     os.chdir(LOCALDIR)
     NDK_APPLICATION_MK = op.join(LOCALDIR, "src", "Application.mk")
-    flags = f"NDK_PROJECT_PATH={LOCALDIR} NDK_APPLICATION_MK={NDK_APPLICATION_MK} {flags}"
+    flags = (
+        f"NDK_PROJECT_PATH={LOCALDIR} NDK_APPLICATION_MK={NDK_APPLICATION_MK} {flags}"
+    )
     proc = system(f"{ndk_build} {flags} -j{cpu_count}")
     if proc.returncode != 0:
         error("Build binary failed!")
@@ -291,7 +309,9 @@ def build_binary():
     mkdir_p(native_gen_path)
     mkdir_p(out)
 
+    os.chdir(op.join(LOCALDIR, "src"))
     run_cargo_build()
+    os.chdir(LOCALDIR)
     dump_flags_header()
     run_ndk_build("B_PRELOAD=1")
     dump_bin_header()
@@ -306,33 +326,39 @@ def update_code():
     os.chdir(LOCALDIR)
     rm_rf("Magisk")
     rm_rf("src")
-    if system("git clone --recurse-submodules https://github.com/topjohnwu/Magisk.git Magisk").returncode != 0:
+    if (
+        system(
+            "git clone --recurse-submodules https://github.com/topjohnwu/Magisk.git Magisk"
+        ).returncode
+        != 0
+    ):
         error("git clone failed!")
 
     # Generate magisk_config.prop
-    magisk_version = cmd_out(
-        f"cd Magisk && git rev-parse --short=8 HEAD && cd ..")
+    magisk_version = cmd_out(f"cd Magisk && git rev-parse --short=8 HEAD && cd ..")
     system(
-        f"tail -n 4 <Magisk/gradle.properties >magisk_config.prop && echo 'magisk.version={magisk_version}' >>magisk_config.prop")
+        f"tail -n 4 <Magisk/gradle.properties >magisk_config.prop && echo 'magisk.version={magisk_version}' >>magisk_config.prop"
+    )
 
     # Fix busybox git push missing header file
     system("rm -rf Magisk/native/src/external/busybox/include/.gitignore")
 
     # Fix path defined
     system("sed -i 's|out/generated|generated|g' Magisk/native/src/base/Android.mk")
-    system("sed -i 's|\.\./out/\$(TARGET_ARCH_ABI)|\.\./generated/\$(TARGET_ARCH_ABI)|g' Magisk/native/src/Android-rs.mk")
+    system(
+        "sed -i 's|\.\./out/\$(TARGET_ARCH_ABI)|\.\./generated/\$(TARGET_ARCH_ABI)|g' Magisk/native/src/Android-rs.mk"
+    )
 
     mv("Magisk/native/src", "src")
     rm_rf("Magisk")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Magiskboot build and update code script")
-    parser.add_argument(
-        "--build_binary", action="store_true", help="Build binary")
-    parser.add_argument("--update_code",  action="store_true",
-                        help="Upadte magisk code")
+        description="Magiskboot build and update code script"
+    )
+    parser.add_argument("--build_binary", action="store_true", help="Build binary")
+    parser.add_argument("--update_code", action="store_true", help="Upadte magisk code")
     args = parser.parse_args()
 
     if len(sys.argv) < 2:
