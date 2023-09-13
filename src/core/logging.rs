@@ -1,5 +1,6 @@
 use std::cmp::min;
 use std::ffi::{c_char, c_void};
+use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::io::{IoSlice, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
@@ -39,7 +40,7 @@ enum ALogPriority {
 type ThreadEntry = extern "C" fn(*mut c_void) -> *mut c_void;
 
 extern "C" {
-    fn __android_log_write(prio: i32, tag: *const c_char, msg: *const u8);
+    fn __android_log_write(prio: i32, tag: *const c_char, msg: *const c_char);
     fn strftime(buf: *mut c_char, len: usize, fmt: *const c_char, tm: *const tm) -> usize;
 
     fn zygisk_fetch_logd() -> RawFd;
@@ -57,7 +58,7 @@ fn level_to_prio(level: LogLevel) -> i32 {
 }
 
 pub fn android_logging() {
-    fn android_log_write(level: LogLevel, msg: &[u8]) {
+    fn android_log_write(level: LogLevel, msg: &Utf8CStr) {
         unsafe {
             __android_log_write(level_to_prio(level), raw_cstr!("Magisk"), msg.as_ptr());
         }
@@ -74,15 +75,15 @@ pub fn android_logging() {
 }
 
 pub fn magisk_logging() {
-    fn magisk_write(level: LogLevel, msg: &[u8]) {
+    fn magisk_log_write(level: LogLevel, msg: &Utf8CStr) {
         unsafe {
             __android_log_write(level_to_prio(level), raw_cstr!("Magisk"), msg.as_ptr());
         }
-        magisk_log_write(level_to_prio(level), msg);
+        magisk_log_to_pipe(level_to_prio(level), msg);
     }
 
     let logger = Logger {
-        write: magisk_write,
+        write: magisk_log_write,
         flags: 0,
     };
     exit_on_error(false);
@@ -92,15 +93,15 @@ pub fn magisk_logging() {
 }
 
 pub fn zygisk_logging() {
-    fn zygisk_write(level: LogLevel, msg: &[u8]) {
+    fn zygisk_log_write(level: LogLevel, msg: &Utf8CStr) {
         unsafe {
             __android_log_write(level_to_prio(level), raw_cstr!("Magisk"), msg.as_ptr());
         }
-        zygisk_log_write(level_to_prio(level), msg);
+        zygisk_log_to_pipe(level_to_prio(level), msg);
     }
 
     let logger = Logger {
-        write: zygisk_write,
+        write: zygisk_log_write,
         flags: 0,
     };
     exit_on_error(false);
@@ -120,10 +121,10 @@ struct LogMeta {
 
 const MAX_MSG_LEN: usize = PIPE_BUF - std::mem::size_of::<LogMeta>();
 
-fn do_magisk_log_write(logd: &mut File, prio: i32, msg: &[u8]) -> io::Result<usize> {
+fn write_log_to_pipe(logd: &mut File, prio: i32, msg: &Utf8CStr) -> io::Result<usize> {
     // Truncate message if needed
     let len = min(MAX_MSG_LEN, msg.len());
-    let msg = &msg[..len];
+    let msg = &msg.as_bytes()[..len];
 
     let meta = LogMeta {
         prio,
@@ -137,7 +138,7 @@ fn do_magisk_log_write(logd: &mut File, prio: i32, msg: &[u8]) -> io::Result<usi
     logd.write_vectored(&[io1, io2])
 }
 
-fn magisk_log_write(prio: i32, msg: &[u8]) {
+fn magisk_log_to_pipe(prio: i32, msg: &Utf8CStr) {
     let magiskd = match MAGISKD.get() {
         None => return,
         Some(s) => s,
@@ -150,7 +151,7 @@ fn magisk_log_write(prio: i32, msg: &[u8]) {
         Some(s) => s,
     };
 
-    let result = do_magisk_log_write(logd, prio, msg);
+    let result = write_log_to_pipe(logd, prio, msg);
 
     // If any error occurs, shut down the logd pipe
     if result.is_err() {
@@ -158,7 +159,7 @@ fn magisk_log_write(prio: i32, msg: &[u8]) {
     }
 }
 
-fn zygisk_log_write(prio: i32, msg: &[u8]) {
+fn zygisk_log_to_pipe(prio: i32, msg: &Utf8CStr) {
     let magiskd = match MAGISKD.get() {
         None => return,
         Some(s) => s,
@@ -190,7 +191,7 @@ fn zygisk_log_write(prio: i32, msg: &[u8]) {
         pthread_sigmask(SIG_BLOCK, &mask, &mut orig_mask);
     }
 
-    let result = do_magisk_log_write(logd, prio, msg);
+    let result = write_log_to_pipe(logd, prio, msg);
 
     // Consume SIGPIPE if exists, then restore mask
     unsafe {
@@ -244,8 +245,8 @@ extern "C" fn logfile_writer(arg: *mut c_void) -> *mut c_void {
         let mut logfile: LogFile = Buffer(&mut tmp);
 
         let mut meta = LogMeta::default();
-        let mut buf: [u8; MAX_MSG_LEN] = [0; MAX_MSG_LEN];
-        let mut aux: [u8; 64] = [0; 64];
+        let mut msg_buf = [0u8; MAX_MSG_LEN];
+        let mut aux = Utf8CStrArr::<64>::new();
 
         loop {
             // Read request
@@ -262,16 +263,16 @@ extern "C" fn logfile_writer(arg: *mut c_void) -> *mut c_void {
                 continue;
             }
 
-            if meta.len < 0 || meta.len > buf.len() as i32 {
+            if meta.len < 0 || meta.len > MAX_MSG_LEN as i32 {
                 continue;
             }
 
             // Read the rest of the message
-            let msg = &mut buf[..(meta.len as usize)];
+            let msg = &mut msg_buf[..(meta.len as usize)];
             pipe.read_exact(msg)?;
 
             // Start building the log string
-
+            aux.clear();
             let prio =
                 ALogPriority::from_i32(meta.prio).unwrap_or(ALogPriority::ANDROID_LOG_UNKNOWN);
             let prio = match prio {
@@ -287,7 +288,6 @@ extern "C" fn logfile_writer(arg: *mut c_void) -> *mut c_void {
             // Note: the obvious better implementation is to use the rust chrono crate, however
             // the crate cannot fetch the proper local timezone without pulling in a bunch of
             // timezone handling code. To reduce binary size, fallback to use localtime_r in libc.
-            let mut aux_len: usize;
             unsafe {
                 let mut ts: timespec = std::mem::zeroed();
                 let mut tm: tm = std::mem::zeroed();
@@ -296,24 +296,22 @@ extern "C" fn logfile_writer(arg: *mut c_void) -> *mut c_void {
                 {
                     continue;
                 }
-                aux_len = strftime(
-                    aux.as_mut_ptr().cast(),
-                    aux.len(),
+                let len = strftime(
+                    aux.mut_buf().as_mut_ptr().cast(),
+                    aux.capacity(),
                     raw_cstr!("%m-%d %T"),
                     &tm,
                 );
+                aux.set_len(len);
                 let ms = ts.tv_nsec / 1000000;
-                aux_len += bfmt!(
-                    &mut aux[aux_len..],
+                aux.write_fmt(format_args!(
                     ".{:03} {:5} {:5} {} : ",
-                    ms,
-                    meta.pid,
-                    meta.tid,
-                    prio
-                );
+                    ms, meta.pid, meta.tid, prio
+                ))
+                .ok();
             }
 
-            let io1 = IoSlice::new(&aux[..aux_len]);
+            let io1 = IoSlice::new(aux.as_bytes_with_nul());
             let io2 = IoSlice::new(msg);
             // We don't need to care the written len because we are writing less than PIPE_BUF
             // It's guaranteed to always write the whole thing atomically
