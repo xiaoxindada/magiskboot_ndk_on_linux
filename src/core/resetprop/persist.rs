@@ -12,11 +12,11 @@ use quick_protobuf::{BytesReader, MessageRead, MessageWrite, Writer};
 
 use base::libc::{O_CLOEXEC, O_RDONLY};
 use base::{
-    cstr, debug, libc::mkstemp, raw_cstr, Directory, FsPath, FsPathBuf, LibcReturn, LoggedError,
-    LoggedResult, MappedFile, Utf8CStr, Utf8CStrArr, WalkResult,
+    clone_attr, cstr, debug, libc::mkstemp, Directory, FsPath, FsPathBuf, LibcReturn, LoggedError,
+    LoggedResult, MappedFile, Utf8CStr, Utf8CStrBufArr, WalkResult,
 };
 
-use crate::ffi::{clone_attr, prop_cb_exec, PropCb};
+use crate::ffi::{prop_cb_exec, PropCb};
 use crate::resetprop::proto::persistent_properties::{
     mod_PersistentProperties::PersistentPropertyRecord, PersistentProperties,
 };
@@ -81,7 +81,7 @@ fn check_proto() -> bool {
 }
 
 fn file_get_prop(name: &Utf8CStr) -> LoggedResult<String> {
-    let mut buf = Utf8CStrArr::default();
+    let mut buf = Utf8CStrBufArr::default();
     let path = FsPathBuf::new(&mut buf)
         .join(PERSIST_PROP_DIR!())
         .join(name);
@@ -93,12 +93,12 @@ fn file_get_prop(name: &Utf8CStr) -> LoggedResult<String> {
 }
 
 fn file_set_prop(name: &Utf8CStr, value: Option<&Utf8CStr>) -> LoggedResult<()> {
-    let mut buf = Utf8CStrArr::default();
+    let mut buf = Utf8CStrBufArr::default();
     let path = FsPathBuf::new(&mut buf)
         .join(PERSIST_PROP_DIR!())
         .join(name);
     if let Some(value) = value {
-        let mut buf = Utf8CStrArr::default();
+        let mut buf = Utf8CStrBufArr::default();
         let mut tmp = FsPathBuf::new(&mut buf)
             .join(PERSIST_PROP_DIR!())
             .join("prop.XXXXXX");
@@ -130,7 +130,7 @@ fn proto_read_props() -> LoggedResult<PersistentProperties> {
 }
 
 fn proto_write_props(props: &PersistentProperties) -> LoggedResult<()> {
-    let mut buf = Utf8CStrArr::default();
+    let mut buf = Utf8CStrBufArr::default();
     let mut tmp = FsPathBuf::new(&mut buf).join(concat!(PERSIST_PROP!(), ".XXXXXX"));
     {
         let f = unsafe {
@@ -140,7 +140,7 @@ fn proto_write_props(props: &PersistentProperties) -> LoggedResult<()> {
         debug!("resetprop: encode with protobuf [{}]", tmp);
         props.write_message(&mut Writer::new(BufWriter::new(f)))?;
     }
-    unsafe { clone_attr(raw_cstr!(PERSIST_PROP!()), tmp.as_ptr()) };
+    clone_attr(FsPath::from(cstr!(PERSIST_PROP!())), &tmp)?;
     tmp.rename_to(cstr!(PERSIST_PROP!()))?;
     Ok(())
 }
