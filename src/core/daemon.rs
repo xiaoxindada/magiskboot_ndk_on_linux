@@ -1,20 +1,37 @@
-use std::cell::RefCell;
 use std::fs::File;
 use std::io;
 use std::sync::{Mutex, OnceLock};
 
-use crate::get_prop;
 use base::{cstr, Directory, ResultExt, Utf8CStr, Utf8CStrBuf, Utf8CStrBufRef, WalkResult};
 
-use crate::logging::{magisk_logging, zygisk_logging};
+use crate::get_prop;
+use crate::logging::magisk_logging;
 
 // Global magiskd singleton
 pub static MAGISKD: OnceLock<MagiskD> = OnceLock::new();
 
 #[derive(Default)]
 pub struct MagiskD {
-    pub logd: Mutex<RefCell<Option<File>>>,
+    pub logd: Mutex<Option<File>>,
     is_emulator: bool,
+}
+
+impl MagiskD {
+    pub fn is_emulator(&self) -> bool {
+        self.is_emulator
+    }
+}
+
+mod cxx_extern {
+    use base::libc::c_char;
+
+    extern "C" {
+        pub fn get_magisk_tmp() -> *const c_char;
+    }
+}
+
+pub fn get_magisk_tmp() -> &'static Utf8CStr {
+    unsafe { Utf8CStr::from_ptr(cxx_extern::get_magisk_tmp()).unwrap_unchecked() }
 }
 
 pub fn daemon_entry() {
@@ -33,20 +50,8 @@ pub fn daemon_entry() {
     magisk_logging();
 }
 
-pub fn zygisk_entry() {
-    let magiskd = MagiskD::default();
-    MAGISKD.set(magiskd).ok();
-    zygisk_logging();
-}
-
 pub fn get_magiskd() -> &'static MagiskD {
     unsafe { MAGISKD.get().unwrap_unchecked() }
-}
-
-impl MagiskD {
-    pub fn is_emulator(&self) -> bool {
-        self.is_emulator
-    }
 }
 
 pub fn find_apk_path(pkg: &[u8], data: &mut [u8]) -> usize {

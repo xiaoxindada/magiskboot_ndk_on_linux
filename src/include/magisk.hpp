@@ -3,7 +3,6 @@
 #include <string>
 
 #define JAVA_PACKAGE_NAME "com.topjohnwu.magisk"
-#define LOGFILE         "/cache/magisk.log"
 #define SECURE_DIR      "/data/adb"
 #define MODULEROOT      SECURE_DIR "/modules"
 #define MODULEUPGRADE   SECURE_DIR "/modules_update"
@@ -27,6 +26,7 @@ extern std::string    MAGISKTMP;
 #define SELINUXMOCK   INTLROOT "/selinux"
 #define MAIN_CONFIG   INTLROOT "/config"
 #define MAIN_SOCKET   INTLROOT "/socket"
+#define LOG_PIPE      INTLROOT "/log"
 
 constexpr const char *applet_names[] = { "su", "resetprop", nullptr };
 

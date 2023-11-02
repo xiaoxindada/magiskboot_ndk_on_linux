@@ -15,7 +15,6 @@ namespace ZygiskRequest {
 enum : int {
     SETUP,
     GET_INFO,
-    GET_LOG_PIPE,
     CONNECT_COMPANION,
     GET_MODDIR,
     PASSTHROUGH,
@@ -36,6 +35,9 @@ enum : int {
 #define ZLOGW(...) LOGW("zygisk32: " __VA_ARGS__)
 #define HIJACK_BIN HIJACK_BIN32
 #endif
+
+extern "C" int zygisk_get_logd();
+extern "C" void zygisk_close_logd();
 
 // Unmap all pages matching the name
 void unmap_all(const char *name);
