@@ -10,7 +10,6 @@
 #define MAGISKDB        SECURE_DIR "/magisk.db"
 
 // tmpfs paths
-extern std::string    MAGISKTMP;
 #define INTLROOT      ".magisk"
 #define MIRRDIR       INTLROOT "/mirror"
 #define PREINITMIRR   INTLROOT "/preinit"
@@ -39,6 +38,9 @@ constexpr const char *applet_names[] = { "su", "resetprop", nullptr };
 // Unconstrained file type that anyone can access
 #define SEPOL_FILE_TYPE     "magisk_file"
 #define MAGISK_FILE_CON     "u:object_r:" SEPOL_FILE_TYPE ":s0"
+// Log pipe that only root and zygote can open
+#define SEPOL_LOG_TYPE      "magisk_log_file"
+#define MAGISK_LOG_CON      "u:object_r:" SEPOL_LOG_TYPE ":s0"
 
 extern int SDK_INT;
 #define APP_DATA_DIR (SDK_INT >= 24 ? "/data/user_de" : "/data/user")
