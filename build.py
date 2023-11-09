@@ -124,9 +124,9 @@ triples = [
     "aarch64-linux-android",
     "x86_64-linux-android",
 ]
-default_targets = ["magiskinit", "magiskboot", "busybox"]
+default_targets = ["magiskboot", "busybox"]
 support_targets = default_targets
-rust_targets = ["magiskinit", "magiskboot"]
+rust_targets = ["magiskboot"]
 
 ndk_root = op.join(LOCALDIR, "ndk")
 ndk_build = op.join(ndk_root, "ndk-build")
