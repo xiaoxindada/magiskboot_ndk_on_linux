@@ -14,6 +14,10 @@ import tarfile
 import textwrap
 import wget
 
+# Environment checks
+if not sys.version_info >= (3, 8):
+    error("Requires Python 3.8+")
+
 
 def parse_props(file):
     props = {}
@@ -120,7 +124,10 @@ triples = [
     "aarch64-linux-android",
     "x86_64-linux-android",
 ]
-rust_targets = ["magiskboot"]
+default_targets = ["magiskinit", "magiskboot", "busybox"]
+support_targets = default_targets
+rust_targets = ["magiskinit", "magiskboot"]
+
 ndk_root = op.join(LOCALDIR, "ndk")
 ndk_build = op.join(ndk_root, "ndk-build")
 rust_bin = op.join(ndk_root, "toolchains", "rust", "bin")
@@ -161,7 +168,7 @@ def binary_dump(src, var_name, compressor=xz):
 def dump_bin_header():
     for arch in archs:
         mkdir_p(op.join(native_gen_path, arch))
-        for tgt in ["libinit-ld.so", "libzygisk-ld.so"]:
+        for tgt in support_targets + ["libinit-ld.so"]:
             source = op.join(LOCALDIR, "libs", arch, tgt)
             target = op.join(native_gen_path, arch, tgt)
             mv(source, target)
@@ -169,9 +176,6 @@ def dump_bin_header():
         preload = op.join(native_gen_path, arch, "libinit-ld.so")
         with open(preload, "rb") as src:
             text = binary_dump(src, "init_ld_xz")
-        preload = op.join(native_gen_path, arch, "libzygisk-ld.so")
-        with open(preload, "rb") as src:
-            text += binary_dump(src, "zygisk_ld", compressor=lambda x: x)
         write_if_diff(op.join(native_gen_path, f"{arch}_binaries.h"), text)
 
 
@@ -188,7 +192,7 @@ def write_if_diff(file_name, text):
             f.write(text)
 
 
-def dump_flags_header():
+def dump_flag_header():
     flag_txt = textwrap.dedent(
         """\
         #pragma once
@@ -226,10 +230,7 @@ def run_cargo_build():
         return
 
     # Start building the actual build commands
-    cmds = ["build"]
-    for target in targets:
-        cmds.append("-p")
-        cmds.append(target)
+    cmds = ["build", "-p", ""]
     rust_out = "debug"
     if release:
         cmds.append("-r")
@@ -243,9 +244,12 @@ def run_cargo_build():
             "thumbv7neon-linux-androideabi" if triple.startswith("armv7") else triple
         )
         cmds[-1] = rust_triple
-        proc = run_cargo(cmds, triple)
-        if proc.returncode != 0:
-            error("Build binary failed!")
+
+        for target in targets:
+            cmds[2] = target
+            proc = run_cargo(cmds, triple)
+            if proc.returncode != 0:
+                error("Build binary failed!")
 
         arch_out = op.join(native_gen_path, arch)
         mkdir_p(arch_out)
@@ -312,13 +316,55 @@ def build_binary():
     os.chdir(op.join(LOCALDIR, "src"))
     run_cargo_build()
     os.chdir(LOCALDIR)
-    dump_flags_header()
-    run_ndk_build("B_PRELOAD=1")
-    dump_bin_header()
-    run_ndk_build("B_BB=1")
+
+    dump_flag_header()
+
+    flag = ""
+
+    if "magisk" in default_targets:
+        flag += " B_MAGISK=1"
+
+    if "magiskpolicy" in default_targets:
+        flag += " B_POLICY=1"
+
+    if "test" in default_targets:
+        flag += " B_TEST=1"
+
+    if "magiskinit" in default_targets:
+        flag += " B_PRELOAD=1"
+
+    if "resetprop" in default_targets:
+        flag += " B_PROP=1"
+
+    if "magiskboot" in default_targets:
+        flag += " B_BOOT=1"
+
+    if flag:
+        run_ndk_build(flag)
+
+    # magiskinit embeds preload.so
+
+    flag = ""
+
+    if "magiskinit" in default_targets:
+        flag += " B_INIT=1"
+
+    if flag:
+        dump_bin_header()
+        run_ndk_build(flag)
+
     cp_output(f"{libs}/*", out)
-    run_ndk_build("B_BOOT=1")
+
+    flag = ""
+
+    if "busybox" in default_targets:
+        flag += " B_BB=1"
+
+    if flag:
+        run_ndk_build(flag)
+
     cp_output(f"{libs}/*", out)
+
     generate_binary_info("out/magisk_version.txt")
 
 
