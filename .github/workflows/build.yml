@@ -3,6 +3,14 @@
 name: build
 
 on:
+  push:
+    paths:
+      - ".github/workflows/build.yml"
+      - "build.py"
+  pull_request:
+    paths:
+      - ".github/workflows/build.yml"
+      - "build.py"
   workflow_dispatch:
 
 jobs:
