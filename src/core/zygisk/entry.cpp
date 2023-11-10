@@ -6,11 +6,10 @@
 #include <android/dlext.h>
 
 #include <base.hpp>
-#include <magisk.hpp>
+#include <consts.hpp>
 
 #include "zygisk.hpp"
 #include "module.hpp"
-#include "deny/deny.hpp"
 
 using namespace std;
 
@@ -22,6 +21,27 @@ extern "C" [[maybe_unused]] void zygisk_inject_entry(void *handle) {
     hook_functions();
     ZLOGD("load success\n");
 }
+
+static bool is_compatible_with(uint32_t) {
+    auto name = get_prop(NBPROP);
+    android_dlextinfo info = {
+        .flags = ANDROID_DLEXT_FORCE_LOAD
+    };
+    void *handle = android_dlopen_ext(name.data(), RTLD_LAZY, &info);
+    if (handle) {
+        auto entry = reinterpret_cast<void (*)(void *)>(dlsym(handle, "zygisk_inject_entry"));
+        if (entry) {
+            entry(handle);
+        }
+    }
+    return false;
+}
+
+extern "C" [[maybe_unused]] NativeBridgeCallbacks NativeBridgeItf{
+    .version = 2,
+    .padding = {},
+    .isCompatibleWith = &is_compatible_with,
+};
 
 // The following code runs in zygote/app process
 
