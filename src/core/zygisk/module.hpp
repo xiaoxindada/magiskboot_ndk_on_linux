@@ -6,7 +6,7 @@
 
 #include "api.hpp"
 
-struct HookContext;
+struct ZygiskContext;
 struct ZygiskModule;
 
 struct AppSpecializeArgs_v1;
@@ -199,18 +199,16 @@ private:
     } mod;
 };
 
-extern HookContext *g_ctx;
+extern ZygiskContext *g_ctx;
 extern int (*old_fork)(void);
 
-enum {
-    POST_SPECIALIZE,
-    APP_FORK_AND_SPECIALIZE,
-    APP_SPECIALIZE,
-    SERVER_FORK_AND_SPECIALIZE,
-    DO_REVERT_UNMOUNT,
-    SKIP_CLOSE_LOG_PIPE,
-
-    FLAG_MAX
+enum : uint32_t {
+    POST_SPECIALIZE = (1u << 0),
+    APP_FORK_AND_SPECIALIZE = (1u << 1),
+    APP_SPECIALIZE = (1u << 2),
+    SERVER_FORK_AND_SPECIALIZE = (1u << 3),
+    DO_REVERT_UNMOUNT = (1u << 4),
+    SKIP_CLOSE_LOG_PIPE = (1u << 5),
 };
 
 #define MAX_FD_SIZE 1024
@@ -219,7 +217,7 @@ enum {
 void name##_pre();         \
 void name##_post();
 
-struct HookContext {
+struct ZygiskContext {
     JNIEnv *env;
     union {
         void *ptr;
@@ -231,7 +229,7 @@ struct HookContext {
     std::list<ZygiskModule> modules;
 
     int pid;
-    std::bitset<FLAG_MAX> flags;
+    uint32_t flags;
     uint32_t info_flags;
     std::bitset<MAX_FD_SIZE> allowed_fds;
     std::vector<int> exempted_fds;
@@ -252,8 +250,8 @@ struct HookContext {
     std::vector<RegisterInfo> register_info;
     std::vector<IgnoreInfo> ignore_info;
 
-    HookContext(JNIEnv *env, void *args);
-    ~HookContext();
+    ZygiskContext(JNIEnv *env, void *args);
+    ~ZygiskContext();
 
     void run_modules_pre(const std::vector<int> &fds);
     void run_modules_post();
@@ -266,8 +264,8 @@ struct HookContext {
 
     void sanitize_fds();
     bool exempt_fd(int fd);
+    bool can_exempt_fd() const;
     bool is_child() const { return pid <= 0; }
-    bool can_exempt_fd() const { return flags[APP_FORK_AND_SPECIALIZE] && args.app->fds_to_ignore; }
 
     // Compatibility shim
     void plt_hook_register(const char *regex, const char *symbol, void *fn, void **backup);
