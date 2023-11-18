@@ -14,17 +14,6 @@
 
 using namespace std;
 
-// Boot stage state
-enum : int {
-    FLAG_NONE = 0,
-    FLAG_POST_FS_DATA_DONE = (1 << 0),
-    FLAG_LATE_START_DONE = (1 << 1),
-    FLAG_BOOT_COMPLETE = (1 << 2),
-    FLAG_SAFE_MODE = (1 << 3),
-};
-
-static int boot_state = FLAG_NONE;
-
 bool zygisk_enabled = false;
 
 /*********
@@ -243,38 +232,6 @@ static bool magisk_env() {
     return true;
 }
 
-void reboot() {
-    if (RECOVERY_MODE)
-        exec_command_sync("/system/bin/reboot", "recovery");
-    else
-        exec_command_sync("/system/bin/reboot");
-}
-
-static bool check_data() {
-    bool mnt = false;
-    file_readline("/proc/mounts", [&](string_view s) {
-        if (str_contains(s, " /data ") && !str_contains(s, "tmpfs")) {
-            mnt = true;
-            return false;
-        }
-        return true;
-    });
-    if (!mnt)
-        return false;
-    auto crypto = get_prop("ro.crypto.state");
-    if (!crypto.empty()) {
-        if (crypto != "encrypted") {
-            // Unencrypted, we can directly access data
-            return true;
-        } else {
-            // Encrypted, check whether vold is started
-            return !get_prop("init.svc.vold").empty();
-        }
-    }
-    // ro.crypto.state is not set, assume it's unencrypted
-    return true;
-}
-
 void unlock_blocks() {
     int fd, dev, OFF = 0;
 
@@ -347,11 +304,8 @@ static bool check_key_combo() {
 
 extern int disable_deny();
 
-static void post_fs_data() {
-    if (!check_data())
-        return;
-
-    rust::get_magiskd().setup_logfile();
+void MagiskD::post_fs_data() const {
+    as_rust().setup_logfile();
 
     LOGI("** post-fs-data mode running\n");
 
@@ -371,7 +325,7 @@ static void post_fs_data() {
 
     if (get_prop("persist.sys.safemode", true) == "1" ||
         get_prop("ro.sys.safemode") == "1" || check_key_combo()) {
-        boot_state |= FLAG_SAFE_MODE;
+        as_rust().enable_safe_mode();
         // Disable all modules and denylist so next boot will be clean
         disable_modules();
         disable_deny();
@@ -387,23 +341,19 @@ static void post_fs_data() {
 early_abort:
     // We still do magic mount because root itself might need it
     load_modules();
-    boot_state |= FLAG_POST_FS_DATA_DONE;
 }
 
-static void late_start() {
-    rust::get_magiskd().setup_logfile();
+void MagiskD::late_start() const {
+    as_rust().setup_logfile();
 
     LOGI("** late_start service mode running\n");
 
     exec_common_scripts("service");
     exec_module_scripts("service");
-
-    boot_state |= FLAG_LATE_START_DONE;
 }
 
-static void boot_complete() {
-    boot_state |= FLAG_BOOT_COMPLETE;
-    rust::get_magiskd().setup_logfile();
+void MagiskD::boot_complete() const {
+    as_rust().setup_logfile();
 
     LOGI("** boot-complete triggered\n");
 
@@ -416,30 +366,4 @@ static void boot_complete() {
     get_manager(0, nullptr, true);
 
     reset_zygisk(true);
-}
-
-void boot_stage_handler(int client, int code) {
-    // Make sure boot stage execution is always serialized
-    static pthread_mutex_t stage_lock = PTHREAD_MUTEX_INITIALIZER;
-    mutex_guard lock(stage_lock);
-
-    switch (code) {
-    case MainRequest::POST_FS_DATA:
-        if ((boot_state & FLAG_POST_FS_DATA_DONE) == 0)
-            post_fs_data();
-        close(client);
-        break;
-    case MainRequest::LATE_START:
-        close(client);
-        if ((boot_state & FLAG_POST_FS_DATA_DONE) && (boot_state & FLAG_SAFE_MODE) == 0)
-            late_start();
-        break;
-    case MainRequest::BOOT_COMPLETE:
-        close(client);
-        if ((boot_state & FLAG_SAFE_MODE) == 0)
-            boot_complete();
-        break;
-    default:
-        __builtin_unreachable();
-    }
 }

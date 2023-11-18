@@ -8,7 +8,6 @@
 #include <functional>
 
 #include "socket.hpp"
-#include "../core-rs.hpp"
 
 #define AID_ROOT   0
 #define AID_SHELL  2000
@@ -19,43 +18,36 @@
 #define to_app_id(uid)  (uid % AID_USER_OFFSET)
 #define to_user_id(uid) (uid / AID_USER_OFFSET)
 
-// Daemon command codes
-namespace MainRequest {
-enum : int {
-    START_DAEMON,
-    CHECK_VERSION,
-    CHECK_VERSION_CODE,
-    STOP_DAEMON,
-
-    _SYNC_BARRIER_,
-
-    SUPERUSER,
-    ZYGOTE_RESTART,
-    DENYLIST,
-    SQLITE_CMD,
-    REMOVE_MODULES,
-    ZYGISK,
-
-    _STAGE_BARRIER_,
-
-    POST_FS_DATA,
-    LATE_START,
-    BOOT_COMPLETE,
-
-    END,
-};
+namespace rust {
+struct MagiskD;
 }
 
+struct MagiskD {
+    // Make sure only references can exist
+    ~MagiskD() = delete;
+
+    // Binding to Rust
+    static const MagiskD &get();
+    void boot_stage_handler(int client, int code) const;
+
+    // C++ implementation
+    void reboot() const;
+    void post_fs_data() const;
+    void late_start() const;
+    void boot_complete() const;
+
+private:
+    const rust::MagiskD &as_rust() const;
+};
+
 // Return codes for daemon
-namespace MainResponse {
-enum : int {
+enum class RespondCode : int {
     ERROR = -1,
     OK = 0,
     ROOT_REQUIRED,
     ACCESS_DENIED,
     END
 };
-}
 
 struct module_info {
     std::string name;
@@ -65,7 +57,6 @@ struct module_info {
 #endif
 };
 
-extern bool RECOVERY_MODE;
 extern bool zygisk_enabled;
 extern std::vector<module_info> *module_list;
 
@@ -124,3 +115,6 @@ int denylist_cli(int argc, char **argv);
 void initialize_denylist();
 bool is_deny_target(int uid, std::string_view process);
 void revert_unmount();
+
+// Include last to prevent recursive include issues
+#include "../core-rs.hpp"
