@@ -23,7 +23,7 @@
 
 #include <jni.h>
 
-#define ZYGISK_API_VERSION 4
+#define ZYGISK_API_VERSION 5
 
 /*
 
@@ -161,6 +161,7 @@ struct AppSpecializeArgs {
     jobjectArray *const whitelisted_data_info_list;
     jboolean *const mount_data_dirs;
     jboolean *const mount_storage_dirs;
+    jboolean *const mount_sysprop_overrides;
 
     AppSpecializeArgs() = delete;
 };
