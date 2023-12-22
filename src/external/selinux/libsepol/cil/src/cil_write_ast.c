@@ -546,6 +546,7 @@ static const char *macro_param_flavor_to_string(enum cil_flavor flavor)
 	return str;
 }
 
+/* ANDROID: not used.
 static void cil_write_src_info_node(FILE *out, struct cil_tree_node *node)
 {
 	struct cil_src_info *info = node->data;
@@ -557,6 +558,7 @@ static void cil_write_src_info_node(FILE *out, struct cil_tree_node *node)
 		fprintf(out, ";;* <?SRC_INFO_KIND> %u %s\n", info->hll_line, info->path);
 	}
 }
+*/
 
 void cil_write_ast_node(FILE *out, struct cil_tree_node *node)
 {
@@ -1558,7 +1560,10 @@ static int __write_cil_ast_node_helper(struct cil_tree_node *node, uint32_t *fin
 	struct cil_write_ast_args *args = extra_args;
 
 	if (node->flavor == CIL_SRC_INFO) {
-		cil_write_src_info_node(args->out, node);
+		// ANDROID: The generated cil may be split/merged later on. Do not output
+		// source information to avoid issues when loading the resulting policy with
+		// libsepol.
+		// cil_write_src_info_node(args->out, node);
 		return SEPOL_OK;
 	}
 
@@ -1593,7 +1598,10 @@ static int __write_cil_ast_last_child_helper(struct cil_tree_node *node, void *e
 	if (parent->flavor == CIL_ROOT) {
 		return SEPOL_OK;
 	} else if (parent->flavor == CIL_SRC_INFO) {
-		fprintf(args->out, ";;* lme\n");
+		// ANDROID: The generated cil may be split/merged later on. Do not output
+		// source information to avoid issues when loading the resulting policy with
+		// libsepol.
+		// fprintf(args->out, ";;* lme\n");
 		return SEPOL_OK;
 	}
 
