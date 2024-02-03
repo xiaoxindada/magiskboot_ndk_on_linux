@@ -5,10 +5,7 @@
 # License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 # of this source tree.
 
-load(
-    "@prelude//utils:utils.bzl",
-    "expect",
-)
+load("@prelude//utils:expect.bzl", "expect")
 load(
     ":link_groups.bzl",
     "LinkGroupLibInfo",
@@ -32,14 +29,14 @@ load(
 # need to implement linking, and avoids needing functions to take the heavier-
 # weight `dependency` type.
 LinkableProviders = record(
-    link_group_lib_info = field(LinkGroupLibInfo.type),
-    linkable_graph = field([LinkableGraph.type, None], None),
-    merged_link_info = field(MergedLinkInfo.type),
-    shared_library_info = field(SharedLibraryInfo.type),
-    linkable_root_info = field([LinkableRootInfo.type, None], None),
+    link_group_lib_info = field(LinkGroupLibInfo),
+    linkable_graph = field([LinkableGraph, None], None),
+    merged_link_info = field(MergedLinkInfo),
+    shared_library_info = field(SharedLibraryInfo),
+    linkable_root_info = field([LinkableRootInfo, None], None),
 )
 
-def linkable(dep: Dependency) -> LinkableProviders.type:
+def linkable(dep: Dependency) -> LinkableProviders:
     expect(LinkGroupLibInfo in dep, str(dep.label.raw_target()))
     return LinkableProviders(
         shared_library_info = dep[SharedLibraryInfo],
@@ -49,5 +46,5 @@ def linkable(dep: Dependency) -> LinkableProviders.type:
         linkable_root_info = dep.get(LinkableRootInfo),
     )
 
-def linkables(deps: list[Dependency]) -> list[LinkableProviders.type]:
+def linkables(deps: list[Dependency]) -> list[LinkableProviders]:
     return [linkable(dep) for dep in deps if MergedLinkInfo in dep]

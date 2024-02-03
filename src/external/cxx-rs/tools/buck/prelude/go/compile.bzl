@@ -6,6 +6,11 @@
 # of this source tree.
 
 load("@prelude//:paths.bzl", "paths")
+
+# @unused this comment is to make the linter happy.  The linter thinks
+# GoCoverageMode is unused despite it being used in the function signature of
+# multiple functions.
+load(":coverage.bzl", "GoCoverageMode")
 load(
     ":packages.bzl",
     "GoPkg",  # @Unused used as type
@@ -16,25 +21,33 @@ load(
 load(":toolchain.bzl", "GoToolchainInfo", "get_toolchain_cmd_args")
 
 # Provider wrapping packages used for compiling.
-GoPkgCompileInfo = provider(fields = [
-    "pkgs",  # {str: GoPkg.type}
-])
+GoPkgCompileInfo = provider(fields = {
+    "pkgs": provider_field(typing.Any, default = None),  # dict[str, GoPkg]
+})
 
 # Provider for test targets that test a library. Contains information for
 # compiling the test and library code together as expected by go.
-GoTestInfo = provider(fields = [
-    "deps",  # [Dependency]
-    "srcs",  # ["source"]
-    "pkg_name",  # str
-])
+GoTestInfo = provider(
+    # @unsorted-dict-items
+    fields = {
+        "deps": provider_field(typing.Any, default = None),  # [Dependency]
+        "srcs": provider_field(typing.Any, default = None),  # ["source"]
+        "pkg_name": provider_field(typing.Any, default = None),  # str
+    },
+)
 
-def _out_root(shared: bool = False):
-    return "__shared__" if shared else "__static__"
+def _out_root(shared: bool = False, coverage_mode: [GoCoverageMode, None] = None):
+    path = "static"
+    if shared:
+        path = "shared"
+    if coverage_mode:
+        path += "__coverage_" + coverage_mode.value + "__"
+    return path
 
-def get_inherited_compile_pkgs(deps: list[Dependency]) -> dict[str, GoPkg.type]:
+def get_inherited_compile_pkgs(deps: list[Dependency]) -> dict[str, GoPkg]:
     return merge_pkgs([d[GoPkgCompileInfo].pkgs for d in deps if GoPkgCompileInfo in d])
 
-def get_filtered_srcs(ctx: AnalysisContext, srcs: list[Artifact], tests: bool = False) -> cmd_args:
+def get_filtered_srcs(ctx: AnalysisContext, srcs: list[Artifact], tests: bool = False, force_disable_cgo: bool = False) -> cmd_args:
     """
     Filter the input sources based on build pragma
     """
@@ -48,7 +61,7 @@ def get_filtered_srcs(ctx: AnalysisContext, srcs: list[Artifact], tests: bool = 
         "__srcs__",
         {src.short_path: src for src in srcs},
     )
-    filter_cmd = get_toolchain_cmd_args(go_toolchain, go_root = False)
+    filter_cmd = get_toolchain_cmd_args(go_toolchain, go_root = True, force_disable_cgo = force_disable_cgo)
     filter_cmd.add(go_toolchain.filter_srcs[RunInfo])
     filter_cmd.add(cmd_args(go_toolchain.go, format = "--go={}"))
     if tests:
@@ -82,7 +95,8 @@ def _compile_cmd(
         pkgs: dict[str, Artifact] = {},
         deps: list[Dependency] = [],
         flags: list[str] = [],
-        shared: bool = False) -> cmd_args:
+        shared: bool = False,
+        coverage_mode: [GoCoverageMode, None] = None) -> cmd_args:
     go_toolchain = ctx.attrs._go_toolchain[GoToolchainInfo]
 
     cmd = cmd_args()
@@ -103,7 +117,7 @@ def _compile_cmd(
     # Add Go pkgs inherited from deps to compiler search path.
     all_pkgs = merge_pkgs([
         pkgs,
-        pkg_artifacts(get_inherited_compile_pkgs(deps), shared = shared),
+        pkg_artifacts(get_inherited_compile_pkgs(deps), shared = shared, coverage_mode = coverage_mode),
         stdlib_pkg_artifacts(go_toolchain, shared = shared),
     ])
 
@@ -117,7 +131,7 @@ def _compile_cmd(
             real_name_ = name_.removeprefix("third-party-source/go/")
             importcfg_content.append(cmd_args("importmap ", real_name_, "=", name_, delimiter = ""))
 
-    root = _out_root(shared)
+    root = _out_root(shared, coverage_mode)
     importcfg = ctx.actions.declare_output(root, paths.basename(pkg_name) + "-importcfg")
     ctx.actions.write(importcfg.as_output(), importcfg_content)
 
@@ -134,15 +148,16 @@ def compile(
         deps: list[Dependency] = [],
         compile_flags: list[str] = [],
         assemble_flags: list[str] = [],
-        shared: bool = False) -> Artifact:
+        shared: bool = False,
+        coverage_mode: [GoCoverageMode, None] = None) -> Artifact:
     go_toolchain = ctx.attrs._go_toolchain[GoToolchainInfo]
-    root = _out_root(shared)
+    root = _out_root(shared, coverage_mode)
     output = ctx.actions.declare_output(root, paths.basename(pkg_name) + ".a")
 
     cmd = get_toolchain_cmd_args(go_toolchain)
     cmd.add(go_toolchain.compile_wrapper[RunInfo])
     cmd.add(cmd_args(output.as_output(), format = "--output={}"))
-    cmd.add(cmd_args(_compile_cmd(ctx, pkg_name, pkgs, deps, compile_flags, shared = shared), format = "--compiler={}"))
+    cmd.add(cmd_args(_compile_cmd(ctx, pkg_name, pkgs, deps, compile_flags, shared = shared, coverage_mode = coverage_mode), format = "--compiler={}"))
     cmd.add(cmd_args(_assemble_cmd(ctx, pkg_name, assemble_flags, shared = shared), format = "--assembler={}"))
     cmd.add(cmd_args(go_toolchain.packer, format = "--packer={}"))
     if ctx.attrs.embedcfg:
@@ -157,6 +172,9 @@ def compile(
     identifier = paths.basename(pkg_name)
     if shared:
         identifier += "[shared]"
+    if coverage_mode:
+        identifier += "[coverage_" + coverage_mode.value + "]"
+
     ctx.actions.run(cmd, category = "go_compile", identifier = identifier)
 
     return output

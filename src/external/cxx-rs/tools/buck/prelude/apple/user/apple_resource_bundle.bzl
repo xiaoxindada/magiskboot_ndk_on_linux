@@ -5,6 +5,7 @@
 # License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 # of this source tree.
 
+load("@prelude//apple:apple_bundle_attrs.bzl", "get_apple_info_plist_build_system_identification_attrs")
 load("@prelude//apple:apple_bundle_resources.bzl", "get_apple_bundle_resource_part_list")
 load("@prelude//apple:apple_bundle_types.bzl", "AppleBundleResourceInfo")
 load("@prelude//apple:apple_toolchain_types.bzl", "AppleToolchainInfo", "AppleToolsInfo")
@@ -25,10 +26,8 @@ def _impl(ctx: AnalysisContext) -> list[Provider]:
         ),
     ]
 
-registration_spec = RuleRegistrationSpec(
-    name = "apple_resource_bundle",
-    impl = _impl,
-    attrs = {
+def _apple_resource_bundle_attrs():
+    attribs = {
         "asset_catalogs_compilation_options": attrs.dict(key = attrs.string(), value = attrs.any(), default = {}),
         "binary": attrs.option(attrs.dep(), default = None),
         "deps": attrs.list(attrs.dep(), default = []),
@@ -43,11 +42,17 @@ registration_spec = RuleRegistrationSpec(
         "resource_group_map": resource_group_map_attr(),
         # Only include macOS hosted toolchains, so we compile resources directly on Mac RE
         "_apple_toolchain": _get_apple_resources_toolchain_attr(),
-        # FIXME: prelude// should be standalone (not refer to fbsource//)
-        "_apple_tools": attrs.exec_dep(default = "fbsource//xplat/buck2/platform/apple:apple-tools", providers = [AppleToolsInfo]),
+        "_apple_tools": attrs.exec_dep(default = "prelude//apple/tools:apple-tools", providers = [AppleToolsInfo]),
         # Because `apple_resource_bundle` is a proxy for `apple_bundle`, we need to get `name`
         # field of the `apple_bundle`, as it's used as a fallback value in Info.plist.
         "_bundle_target_name": attrs.string(),
         "_compile_resources_locally_override": attrs.option(attrs.bool(), default = None),
-    },
+    }
+    attribs.update(get_apple_info_plist_build_system_identification_attrs())
+    return attribs
+
+registration_spec = RuleRegistrationSpec(
+    name = "apple_resource_bundle",
+    impl = _impl,
+    attrs = _apple_resource_bundle_attrs(),
 )

@@ -41,10 +41,7 @@ def erlang_tests_macro(
         deps: list[str] = [],
         resources: list[str] = [],
         property_tests: list[str] = [],
-        config_files: list[str] = [],
         srcs: list[str] = [],
-        use_default_configs: bool = True,
-        use_default_deps: bool = True,
         **common_attributes: dict) -> None:
     """
     Generate multiple erlang_test targets based on the `suites` field.
@@ -53,7 +50,6 @@ def erlang_tests_macro(
     resource targets for files in the suite associated <suitename>_data folder.
     """
     deps = [normalize_application(dep) for dep in deps]
-    config_files = list(config_files)
 
     if not suites:
         return
@@ -72,19 +68,6 @@ def erlang_tests_macro(
         )
         deps.append(":" + srcs_app)
 
-    # add default apps
-
-    default_deps = read_root_config("erlang", "erlang_tests_default_apps", None) if use_default_deps else None
-    default_config_files = read_root_config("erlang", "erlang_tests_default_config", None) if use_default_configs else None
-    trampoline = read_root_config("erlang", "erlang_tests_trampoline", None) if use_default_configs else None
-    providers = read_root_config("erlang", "erlang_test_providers", "") if use_default_configs else ""
-
-    if default_config_files:
-        config_files += default_config_files.split()
-
-    if default_deps != None:
-        deps += default_deps.split()
-
     target_resources = list(resources)
 
     if not property_tests:
@@ -94,10 +77,6 @@ def erlang_tests_macro(
             property_tests = [prop_target]
 
     common_attributes["labels"] = common_attributes.get("labels", []) + ["tpx-enable-artifact-reporting", "test-framework=39:erlang_common_test"]
-
-    additional_labels = read_config("erlang", "test_labels", None)
-    if additional_labels != None:
-        common_attributes["labels"] += additional_labels.split()
 
     common_attributes["labels"] = list_dedupe(common_attributes["labels"])
 
@@ -121,10 +100,7 @@ def erlang_tests_macro(
             suite = suite,
             deps = deps,
             resources = suite_resource,
-            config_files = config_files,
             property_tests = property_tests,
-            _trampoline = trampoline,
-            _providers = providers,
             **common_attributes
         )
 
@@ -177,13 +153,14 @@ def erlang_test_impl(ctx: AnalysisContext) -> list[Provider]:
     # Config files for ct
     config_files = [config_file[DefaultInfo].default_outputs[0] for config_file in ctx.attrs.config_files]
 
-    test_binary = ctx.attrs._test_binary[RunInfo]
+    test_binary = ctx.attrs._test_binary[DefaultInfo].default_outputs
 
     trampoline = ctx.attrs._trampoline
     cmd = cmd_args([])
     if trampoline:
         cmd.add(trampoline[RunInfo])
 
+    cmd.add(primary_toolchain.otp_binaries.escript)
     cmd.add(test_binary)
 
     suite = ctx.attrs.suite
@@ -245,6 +222,8 @@ def erlang_test_impl(ctx: AnalysisContext) -> list[Provider]:
         additional_args = additional_args,
     )
 
+    re_executor = get_re_executor_from_props(ctx)
+
     return [
         default_info,
         run_info,
@@ -255,6 +234,8 @@ def erlang_test_impl(ctx: AnalysisContext) -> list[Provider]:
             labels = ["tpx-fb-test-type=16"] + ctx.attrs.labels,
             contacts = ctx.attrs.contacts,
             run_from_project_root = True,
+            use_project_relative_paths = True,
+            default_executor = re_executor,
         ),
         ErlangTestInfo(
             name = suite_name,
@@ -284,6 +265,8 @@ def _write_test_info_file(
         config_files: list[Artifact],
         erl_cmd: [cmd_args, Artifact]) -> Artifact:
     tests_info = {
+        "artifact_annotation_mfa": ctx.attrs._artifact_annotation_mfa,
+        "common_app_env": ctx.attrs.common_app_env,
         "config_files": config_files,
         "ct_opts": ctx.attrs._ct_opts,
         "dependencies": _list_code_paths(dependencies),
@@ -336,7 +319,7 @@ def _build_resource_dir(ctx, resources: list, target_dir: str) -> Artifact:
 def link_output(
         ctx: AnalysisContext,
         test_suite: str,
-        build_environment: "BuildEnvironment",
+        build_environment: BuildEnvironment,
         data_dir: Artifact,
         property_dir: Artifact) -> Artifact:
     """Link the data_dirs and the test_suite beam in a single output folder."""
@@ -362,3 +345,30 @@ def generate_file_map_target(suite: str, dir_name: str) -> str:
         )
         return ":{}-{}".format(dir_name, suite_name)
     return ""
+
+def get_re_executor_from_props(ctx: AnalysisContext) -> [CommandExecutorConfig, None]:
+    """
+    Convert the `remote_execution` properties param into a `CommandExecutorConfig`
+    to use with test providers.
+    """
+
+    re_props = ctx.attrs.remote_execution
+    if re_props == None:
+        return None
+
+    re_props_copy = dict(re_props)
+    capabilities = re_props_copy.pop("capabilities")
+    use_case = re_props_copy.pop("use_case")
+    remote_cache_enabled = re_props_copy.pop("remote_cache_enabled", None)
+    if re_props_copy:
+        unexpected_props = ", ".join(re_props_copy.keys())
+        fail("found unexpected re props: " + unexpected_props)
+
+    return CommandExecutorConfig(
+        local_enabled = False,
+        remote_enabled = True,
+        remote_execution_properties = capabilities,
+        remote_execution_use_case = use_case or "tpx-default",
+        remote_cache_enabled = remote_cache_enabled,
+        remote_execution_action_key = None,
+    )

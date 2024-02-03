@@ -35,7 +35,6 @@ $ ./bin.pex
 """
 
 import argparse
-import errno
 import os
 import platform
 import stat
@@ -43,9 +42,6 @@ from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    # TODO(nmj): Go back and verify all of the various flags that make_xar
-    #                 takes, and standardize on that so that the calling convention
-    #                 is the same regardless of the "make_X" binary that's used.
     parser = argparse.ArgumentParser(
         description=(
             "Create a python inplace binary, writing a symlink tree to a directory, "
@@ -89,8 +85,25 @@ def parse_args() -> argparse.Namespace:
         default="-Es",
         help="The interpreter flags for the hashbang",
     )
+    entry_point = parser.add_mutually_exclusive_group(required=True)
+    entry_point.add_argument(
+        "--entry-point",
+        help="The main module to execute. Mutually exclusive with --main-function.",
+    )
+    entry_point.add_argument(
+        "--main-function",
+        help=(
+            "Fully qualified name of the function that serves as the entry point."
+            " Mutually exclusive with --entry-point."
+        ),
+    )
     parser.add_argument(
-        "--entry-point", required=True, help="The main module to execute"
+        "--main-runner",
+        help=(
+            "Fully qualified name of a function that handles invoking the"
+            " executable's entry point."
+        ),
+        required=True,
     )
     parser.add_argument(
         "--modules-dir",
@@ -115,6 +128,13 @@ def parse_args() -> argparse.Namespace:
         ),
         help="The dynamic loader env used to find native library deps",
     )
+    parser.add_argument(
+        "-e",
+        "--runtime_env",
+        action="append",
+        default=[],
+        help="environment variables to set before launching the runtime. (e.g. -e FOO=BAR BAZ=QUX)",
+    )
     # Compatibility with existing make_par scripts
     parser.add_argument("--passthrough", action="append", default=[])
 
@@ -124,7 +144,11 @@ def parse_args() -> argparse.Namespace:
 def write_bootstrapper(args: argparse.Namespace) -> None:
     """Write the .pex bootstrapper script using a template"""
 
-    template = args.template_lite if args.use_lite else args.template
+    template = (
+        args.template_lite
+        if (args.use_lite and not args.runtime_env)
+        else args.template
+    )
     with open(template, "r", encoding="utf8") as fin:
         data = fin.read()
 
@@ -148,17 +172,31 @@ def write_bootstrapper(args: argparse.Namespace) -> None:
 
     new_data = data.replace("<PYTHON>", "/usr/bin/env " + str(args.python))
     new_data = new_data.replace("<PYTHON_INTERPRETER_FLAGS>", "")
-    # new_data = new_data.replace(
-    #    "<PYTHON_INTERPRETER_FLAGS>", args.python_interpreter_flags
-    # )
+
     new_data = new_data.replace("<MODULES_DIR>", str(relative_modules_dir))
-    new_data = new_data.replace("<MAIN_MODULE>", args.entry_point)
+    main_module = args.entry_point
+    main_function = ""
+    if args.main_function:
+        main_module, main_function = args.main_function.rsplit(".", 1)
+    new_data = new_data.replace("<MAIN_MODULE>", main_module)
+    new_data = new_data.replace("<MAIN_FUNCTION>", main_function)
+
+    main_runner_module, main_runner_function = args.main_runner.rsplit(".", 1)
+    new_data = new_data.replace("<MAIN_RUNNER_MODULE>", main_runner_module)
+    new_data = new_data.replace("<MAIN_RUNNER_FUNCTION>", main_runner_function)
 
     # Things that are only required for the full template
     new_data = new_data.replace("<NATIVE_LIBS_ENV_VAR>", args.native_libs_env_var)
     new_data = new_data.replace("<NATIVE_LIBS_DIR>", repr(relative_modules_dir))
     new_data = new_data.replace("<NATIVE_LIBS_PRELOAD_ENV_VAR>", "LD_PRELOAD")
     new_data = new_data.replace("<NATIVE_LIBS_PRELOAD>", ld_preload)
+
+    if args.runtime_env:
+        runtime_env = dict(e.split("=", maxsplit=1) for e in args.runtime_env)
+        env = f"os.environ.update({runtime_env!r})"
+    else:
+        env = ""
+    new_data = new_data.replace("<ENV>", env)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w", encoding="utf8") as fout:

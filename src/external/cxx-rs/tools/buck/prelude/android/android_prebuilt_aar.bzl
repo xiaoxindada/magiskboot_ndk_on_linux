@@ -78,10 +78,11 @@ def android_prebuilt_aar_impl(ctx: AnalysisContext) -> list[Provider]:
         required_for_source_only_abi = ctx.attrs.required_for_source_only_abi,
     )
 
-    java_library_info, java_packaging_info, shared_library_info, cxx_resource_info, template_placeholder_info, java_library_intellij_info = create_java_library_providers(
+    java_library_info, java_packaging_info, shared_library_info, linkable_graph, cxx_resource_info, template_placeholder_info, java_library_intellij_info = create_java_library_providers(
         ctx = ctx,
         library_output = library_output_classpath_entry,
         exported_deps = ctx.attrs.deps,
+        provided_deps = ctx.attrs.desugar_deps,
         needs_desugar = True,
         is_prebuilt_jar = True,
         annotation_jars_dir = annotation_jars_dir,
@@ -100,9 +101,18 @@ def android_prebuilt_aar_impl(ctx: AnalysisContext) -> list[Provider]:
         java_packaging_info,
         shared_library_info,
         cxx_resource_info,
+        linkable_graph,
         template_placeholder_info,
         java_library_intellij_info,
-        merge_android_packageable_info(ctx.label, ctx.actions, ctx.attrs.deps, manifest = manifest, prebuilt_native_library_dir = native_library, resource_info = resource_info),
+        merge_android_packageable_info(
+            ctx.label,
+            ctx.actions,
+            ctx.attrs.deps,
+            manifest = manifest,
+            prebuilt_native_library_dir = native_library,
+            resource_info = resource_info,
+            for_primary_apk = ctx.attrs.for_primary_apk,
+        ),
         resource_info,
         DefaultInfo(default_output = all_classes_jar, other_outputs = [
             manifest,

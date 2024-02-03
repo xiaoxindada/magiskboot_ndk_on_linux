@@ -15,7 +15,24 @@ def __invoke_main():
     import runpy
     import sys
 
-    module = os.getenv("FB_LPAR_MAIN_MODULE")
+    module = os.getenv("FB_PAR_MAIN_MODULE")
+    main_function = os.getenv("FB_PAR_MAIN_FUNCTION")
+
+    sys.argv[0] = os.getenv("FB_LPAR_INVOKED_NAME", sys.argv[0])
+    del sys.path[0]
+
+    main_runner_module = os.getenv("FB_PAR_MAIN_RUNNER_MODULE")
+    main_runner_function = os.getenv("FB_PAR_MAIN_RUNNER_FUNCTION")
+
+    if main_runner_module and main_runner_function:
+        from importlib import import_module
+
+        mod = import_module(main_runner_module)
+        run_as_main = getattr(mod, main_runner_function)
+        run_as_main(module, main_function)
+        return
+
+    #### BUCK1-ONLY CODE FOLLOWS ####
 
     # Allow users to decorate the main module. In normal Python invocations
     # this can be done by prefixing the arguments with `-m decoratingmodule`.
@@ -31,9 +48,17 @@ def __invoke_main():
         os.environ["PAR_MAIN_ORIGINAL"] = module
         module = decorate_main_module
 
-    # pyre-fixme[6]: For 2nd argument expected `str` but got `Optional[str]`.
-    sys.argv[0] = os.getenv("FB_LPAR_INVOKED_NAME")
-    del sys.path[0]
+    if main_function:
+        assert module
+        from importlib import import_module
+
+        mod = import_module(module)
+        main = getattr(mod, main_function)
+        # This is normally done by `runpy._run_module_as_main`, and is
+        # important to make multiprocessing work
+        sys.modules["__main__"] = mod
+        main()
+        return
 
     del os
     del sys

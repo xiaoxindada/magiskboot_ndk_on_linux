@@ -5,7 +5,7 @@
 # License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 # of this source tree.
 
-load("@prelude//utils:utils.bzl", "expect")
+load("@prelude//utils:expect.bzl", "expect")
 
 _RE_ENABLED = "supports_remote_execution"
 _RE_OPTS_LABEL_PREFIX = "re_opts_capabilities="
@@ -14,7 +14,7 @@ _RE_OPTS_KEYS = ["platform", "subplatform", "gpu_name"]
 def _parse_re_opts(labels: list[str]) -> [dict[str, str], None]:
     """
     Parse out JSON-embedded RE options like:
-    "re_opts_capabilities={\"platform\": \"gpu-remote-execution\", \"gpu_name\": \"P100\"}"
+    're_opts_capabilities={"platform": gpu-remote-execution, "gpu_name": "A100"}'
     """
 
     for label in labels:
@@ -29,8 +29,7 @@ def _parse_re_opts(labels: list[str]) -> [dict[str, str], None]:
 # TODO(agallagher): Parsing RE options via JSON embedded in labels isn't a great
 # UI, and we just do it here to support existing use cases.  Ideally, though, we'd
 # present a better UI (e.g. an `re_opts` param for tests) and use that instead.
-# TODO(nga): remove "command_executor_config_builder", this is dead code after the version bump.
-def get_re_executor_from_labels(labels: list[str]) -> ["command_executor_config_builder", "command_executor_config", None]:
+def get_re_executor_from_labels(labels: list[str]) -> [CommandExecutorConfig, None]:
     """
     Parse legacy RE-enablement test labels and use them to configure a test RE
     executor to run the test with.

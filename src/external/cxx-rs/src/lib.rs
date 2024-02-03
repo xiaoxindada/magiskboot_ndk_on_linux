@@ -364,14 +364,19 @@
 //! </table>
 
 #![no_std]
-#![doc(html_root_url = "https://docs.rs/cxx/1.0.105")]
+#![doc(html_root_url = "https://docs.rs/cxx/1.0.115")]
+#![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![deny(
     improper_ctypes,
     improper_ctypes_definitions,
     missing_docs,
     unsafe_op_in_unsafe_fn
 )]
-#![cfg_attr(doc_cfg, feature(doc_cfg))]
+#![warn(
+    clippy::alloc_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::std_instead_of_core
+)]
 #![allow(non_camel_case_types)]
 #![allow(
     clippy::cast_possible_truncation,
@@ -472,6 +477,7 @@ mod weak_ptr;
 
 pub use crate::cxx_vector::CxxVector;
 #[cfg(feature = "alloc")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
 pub use crate::exception::Exception;
 pub use crate::extern_type::{kind, ExternType};
 pub use crate::shared_ptr::SharedPtr;
@@ -542,4 +548,4 @@ chars! {
 }
 
 #[repr(transparent)]
-struct void(core::ffi::c_void);
+struct void(#[allow(dead_code)] core::ffi::c_void);

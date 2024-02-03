@@ -17,12 +17,12 @@ load(
     "CxxSrcWithFlags",  # @unused Used as a type
 )
 load("@prelude//cxx:xcode.bzl", "cxx_populate_xcode_attributes")
-load("@prelude//utils:utils.bzl", "expect")
+load("@prelude//utils:expect.bzl", "expect")
 
 def apple_populate_xcode_attributes(
         ctx,
-        srcs: list[CxxSrcWithFlags.type],
-        argsfiles: dict[str, CompileArgsfile.type],
+        srcs: list[CxxSrcWithFlags],
+        argsfiles: dict[str, CompileArgsfile],
         product_name: str) -> dict[str, typing.Any]:
     data = cxx_populate_xcode_attributes(ctx = ctx, srcs = srcs, argsfiles = argsfiles, product_name = product_name)
 
@@ -65,5 +65,6 @@ def _get_attribute_with_output(ctx: AnalysisContext, attr_name: str) -> [Depende
             return dep
     return None
 
-def apple_get_xcode_absolute_path_prefix() -> [str, None]:
-    return read_root_config("xcode", "absolute_path_prefix", None)
+def get_project_root_file(ctx) -> Artifact:
+    content = cmd_args(ctx.label.project_root)
+    return ctx.actions.write("project_root", content, absolute = True)

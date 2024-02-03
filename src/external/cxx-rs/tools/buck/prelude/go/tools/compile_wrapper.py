@@ -75,7 +75,7 @@ def main(argv):
 
     go_files = [s for s in real_srcs if s.suffix == ".go"]
     s_files = [s for s in real_srcs if s.suffix == ".s"]
-    o_files = [s for s in real_srcs if s.suffix == ".o"]
+    o_files = [s for s in real_srcs if s.suffix in (".o", ".obj")]
 
     with contextlib.ExitStack() as stack:
 
@@ -97,6 +97,9 @@ def main(argv):
                 asmhdr.touch()
                 compile_prefix.extend(["-asmhdr", asmhdr])
                 assemble_prefix.extend(["-I", asmhdr_dir.name])
+                assemble_prefix.extend(
+                    ["-I", os.path.join(os.environ["GOROOT"], "pkg", "include")]
+                )
                 assemble_prefix.extend(["-D", f"GOOS_{os.environ['GOOS']}"])
                 assemble_prefix.extend(["-D", f"GOARCH_{os.environ['GOARCH']}"])
                 if "GOAMD64" in os.environ and os.environ["GOARCH"] == "amd64":
@@ -124,9 +127,9 @@ def main(argv):
 
         # If there are assembly files, assemble them to an object and add into the
         # output archive.
-        if s_files:
-            s_object = args.output.with_suffix(".o")
-            _compile(assemble_prefix, s_object, s_files)
+        for s_file in s_files:
+            s_object = args.output.with_name(s_file.name).with_suffix(".o")
+            _compile(assemble_prefix, s_object, [s_file])
             o_files.append(s_object)
 
         if o_files:

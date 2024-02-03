@@ -7,11 +7,21 @@
 
 load(
     "@prelude//java:java_providers.bzl",
+    "JavaClasspathEntry",  # @unused Used as a type
+    "JavaCompileOutputs",  # @unused Used as a type
     "JavaLibraryInfo",
     "make_compile_outputs",
 )
 load("@prelude//java:java_resources.bzl", "get_resources_map")
 load("@prelude//java:java_toolchain.bzl", "AbiGenerationMode", "DepFiles", "JavaToolchainInfo")
+load(
+    "@prelude//java/plugins:java_annotation_processor.bzl",
+    "AnnotationProcessorProperties",  # @unused Used as type
+)
+load(
+    "@prelude//java/plugins:java_plugin.bzl",
+    "PluginParams",  # @unused Used as type
+)
 load(
     "@prelude//jvm:cd_jar_creator_util.bzl",
     "OutputPaths",
@@ -30,7 +40,8 @@ load(
 )
 load("@prelude//kotlin:kotlin_toolchain.bzl", "KotlinToolchainInfo")
 load("@prelude//kotlin:kotlin_utils.bzl", "get_kotlinc_compatible_target")
-load("@prelude//utils:utils.bzl", "expect", "map_idx")
+load("@prelude//utils:expect.bzl", "expect")
+load("@prelude//utils:utils.bzl", "map_idx")
 
 buckPaths = struct(
     configuredBuckOut = "buck-out/v2",
@@ -40,30 +51,32 @@ buckPaths = struct(
 def create_jar_artifact_kotlincd(
         actions: AnalysisActions,
         actions_identifier: [str, None],
-        abi_generation_mode: [AbiGenerationMode.type, None],
-        java_toolchain: JavaToolchainInfo.type,
-        kotlin_toolchain: KotlinToolchainInfo.type,
-        javac_tool: [str, RunInfo.type, Artifact, None],
+        abi_generation_mode: [AbiGenerationMode, None],
+        java_toolchain: JavaToolchainInfo,
+        kotlin_toolchain: KotlinToolchainInfo,
+        javac_tool: [str, RunInfo, Artifact, None],
         label: Label,
         srcs: list[Artifact],
         remove_classes: list[str],
         resources: list[Artifact],
         resources_root: [str, None],
-        annotation_processor_properties: "AnnotationProcessorProperties",
-        plugin_params: ["PluginParams", None],
+        annotation_processor_properties: AnnotationProcessorProperties,
+        plugin_params: [PluginParams, None],
         source_level: int,
         target_level: int,
         deps: list[Dependency],
         required_for_source_only_abi: bool,
         source_only_abi_deps: list[Dependency],
-        extra_arguments: list[str],
+        extra_arguments: cmd_args,
         additional_classpath_entries: list[Artifact],
         bootclasspath_entries: list[Artifact],
         is_building_android_binary: bool,
         friend_paths: list[Dependency],
         kotlin_compiler_plugins: dict,
         extra_kotlinc_arguments: list[str],
-        extra_non_source_only_abi_kotlinc_arguments: list[str]) -> "JavaCompileOutputs":
+        k2: bool,
+        is_creating_subtarget: bool = False,
+        optional_dirs: list[OutputArtifact] = []) -> JavaCompileOutputs:
     resources_map = get_resources_map(
         java_toolchain = java_toolchain,
         package = label.package,
@@ -77,7 +90,10 @@ def create_jar_artifact_kotlincd(
     output_paths = define_output_paths(actions, actions_identifier, label)
     path_to_class_hashes_out = declare_prefixed_output(actions, actions_identifier, "classes.txt")
 
-    should_create_class_abi = actual_abi_generation_mode == AbiGenerationMode("class") or not is_building_android_binary
+    should_create_class_abi = \
+        not is_creating_subtarget and \
+        (actual_abi_generation_mode == AbiGenerationMode("class") or not is_building_android_binary) and \
+        kotlin_toolchain.jvm_abi_gen_plugin != None
     if should_create_class_abi:
         class_abi_jar = declare_prefixed_output(actions, actions_identifier, "class-abi.jar")
         class_abi_output_dir = declare_prefixed_output(actions, actions_identifier, "class_abi_dir", dir = True)
@@ -90,6 +106,16 @@ def create_jar_artifact_kotlincd(
         should_use_jvm_abi_gen = False
 
     def encode_kotlin_extra_params(kotlin_compiler_plugins):
+        kosabiPluginOptionsMap = {}
+        if kotlin_toolchain.kosabi_stubs_gen_plugin != None:
+            kosabiPluginOptionsMap["kosabi_stubs_gen_plugin"] = kotlin_toolchain.kosabi_stubs_gen_plugin
+
+        if kotlin_toolchain.kosabi_applicability_plugin != None:
+            kosabiPluginOptionsMap["kosabi_applicability_plugin"] = kotlin_toolchain.kosabi_applicability_plugin
+
+        if kotlin_toolchain.kosabi_jvm_abi_gen_plugin != None:
+            kosabiPluginOptionsMap["kosabi_jvm_abi_gen_plugin"] = kotlin_toolchain.kosabi_jvm_abi_gen_plugin
+
         return struct(
             extraClassPaths = bootclasspath_entries,
             standardLibraryClassPath = kotlin_toolchain.kotlin_stdlib[JavaLibraryInfo].library_output.full_library,
@@ -98,11 +124,7 @@ def create_jar_artifact_kotlincd(
             qpldDotslash = kotlin_toolchain.qpld_dotslash,
             jvmAbiGenPlugin = kotlin_toolchain.jvm_abi_gen_plugin,
             kotlinCompilerPlugins = {plugin: {"params": plugin_options} if plugin_options else {} for plugin, plugin_options in kotlin_compiler_plugins.items()},
-            kosabiPluginOptions = struct(
-                kosabi_stubs_gen_plugin = kotlin_toolchain.kosabi_stubs_gen_plugin,
-                kosabi_applicability_plugin = kotlin_toolchain.kosabi_applicability_plugin,
-                kosabi_jvm_abi_gen_plugin = kotlin_toolchain.kosabi_jvm_abi_gen_plugin,
-            ),
+            kosabiPluginOptions = struct(**kosabiPluginOptionsMap),
             friendPaths = [friend_path.library_output.abi for friend_path in map_idx(JavaLibraryInfo, friend_paths) if friend_path.library_output],
             kotlinHomeLibraries = kotlin_toolchain.kotlin_home_libraries,
             jvmTarget = get_kotlinc_compatible_target(str(target_level)),
@@ -113,7 +135,7 @@ def create_jar_artifact_kotlincd(
             shouldVerifySourceOnlyAbiConstraints = actual_abi_generation_mode == AbiGenerationMode("source_only"),
             shouldGenerateAnnotationProcessingStats = True,
             extraKotlincArguments = extra_kotlinc_arguments,
-            extraNonSourceOnlyAbiKotlincArguments = extra_non_source_only_abi_kotlinc_arguments,
+            extraNonSourceOnlyAbiKotlincArguments = ["-language-version=2.0"] if k2 else [],
             shouldRemoveKotlinCompilerFromClassPath = True,
             depTrackerPlugin = kotlin_toolchain.track_class_usage_plugin,
         )
@@ -126,9 +148,9 @@ def create_jar_artifact_kotlincd(
     track_class_usage = javac_tool == None
 
     def encode_library_command(
-            output_paths: OutputPaths.type,
+            output_paths: OutputPaths,
             path_to_class_hashes: Artifact,
-            classpath_jars_tag: "artifact_tag") -> struct.type:
+            classpath_jars_tag: ArtifactTag) -> struct:
         target_type = TargetType("library")
         base_jar_command = encode_base_jar_command(
             javac_tool,
@@ -169,10 +191,10 @@ def create_jar_artifact_kotlincd(
         )
 
     def encode_abi_command(
-            output_paths: OutputPaths.type,
-            target_type: TargetType.type,
-            classpath_jars_tag: "artifact_tag",
-            source_only_abi_compiling_deps: list["JavaClasspathEntry"] = []) -> struct.type:
+            output_paths: OutputPaths,
+            target_type: TargetType,
+            classpath_jars_tag: ArtifactTag,
+            source_only_abi_compiling_deps: list[JavaClasspathEntry] = []) -> struct:
         base_jar_command = encode_base_jar_command(
             javac_tool,
             target_type,
@@ -212,14 +234,15 @@ def create_jar_artifact_kotlincd(
     def define_kotlincd_action(
             category_prefix: str,
             actions_identifier: [str, None],
-            encoded_command: struct.type,
+            encoded_command: struct,
             qualified_name: str,
-            output_paths: OutputPaths.type,
-            classpath_jars_tag: "artifact_tag",
+            output_paths: OutputPaths,
+            classpath_jars_tag: ArtifactTag,
             abi_dir: [Artifact, None],
-            target_type: TargetType.type,
+            target_type: TargetType,
             path_to_class_hashes: [Artifact, None],
-            source_only_abi_compiling_deps: list["JavaClasspathEntry"] = []):
+            source_only_abi_compiling_deps: list[JavaClasspathEntry] = [],
+            is_creating_subtarget: bool = False):
         _unused = source_only_abi_compiling_deps
 
         proto = declare_prefixed_output(actions, actions_identifier, "jar_command.proto.json")
@@ -267,12 +290,18 @@ def create_jar_artifact_kotlincd(
                 abi_dir.as_output(),
             )
 
+        if optional_dirs:
+            args.add(
+                "--optional-dirs",
+                optional_dirs,
+            )
+
         args = add_output_paths_to_cmd_args(args, output_paths, path_to_class_hashes)
 
         event_pipe_out = declare_prefixed_output(actions, actions_identifier, "events.data")
 
         dep_files = {}
-        if srcs and (kotlin_toolchain.dep_files == DepFiles("per_jar") or kotlin_toolchain.dep_files == DepFiles("per_class")) and target_type == TargetType("library") and track_class_usage:
+        if not is_creating_subtarget and srcs and (kotlin_toolchain.dep_files == DepFiles("per_jar") or kotlin_toolchain.dep_files == DepFiles("per_class")) and target_type == TargetType("library") and track_class_usage:
             used_classes_json_outputs = [
                 output_paths.jar_parent.project("used-classes.json"),
                 output_paths.jar_parent.project("kotlin-used-classes.json"),
@@ -316,6 +345,7 @@ def create_jar_artifact_kotlincd(
         abi_dir = class_abi_output_dir if should_create_class_abi else None,
         target_type = TargetType("library"),
         path_to_class_hashes = path_to_class_hashes_out,
+        is_creating_subtarget = is_creating_subtarget,
     )
 
     final_jar = prepare_final_jar(
@@ -327,29 +357,36 @@ def create_jar_artifact_kotlincd(
         jar_builder = java_toolchain.jar_builder,
     )
 
-    # kotlincd does not support source abi
-    class_abi, _, source_only_abi, classpath_abi, classpath_abi_dir = generate_abi_jars(
-        actions = actions,
-        actions_identifier = actions_identifier,
-        label = label,
-        abi_generation_mode = actual_abi_generation_mode,
-        additional_compiled_srcs = None,
-        is_building_android_binary = is_building_android_binary,
-        class_abi_generator = java_toolchain.class_abi_generator,
-        final_jar = final_jar,
-        compiling_deps_tset = compiling_deps_tset,
-        source_only_abi_deps = source_only_abi_deps,
-        class_abi_jar = class_abi_jar,
-        class_abi_output_dir = class_abi_output_dir,
-        encode_abi_command = encode_abi_command,
-        define_action = define_kotlincd_action,
-    )
-    return make_compile_outputs(
-        full_library = final_jar,
-        class_abi = class_abi,
-        source_only_abi = source_only_abi,
-        classpath_abi = classpath_abi,
-        classpath_abi_dir = classpath_abi_dir,
-        required_for_source_only_abi = required_for_source_only_abi,
-        annotation_processor_output = output_paths.annotations,
-    )
+    if not is_creating_subtarget:
+        # kotlincd does not support source abi
+        class_abi, _, source_only_abi, classpath_abi, classpath_abi_dir = generate_abi_jars(
+            actions = actions,
+            actions_identifier = actions_identifier,
+            label = label,
+            abi_generation_mode = actual_abi_generation_mode,
+            additional_compiled_srcs = None,
+            is_building_android_binary = is_building_android_binary,
+            class_abi_generator = java_toolchain.class_abi_generator,
+            final_jar = final_jar,
+            compiling_deps_tset = compiling_deps_tset,
+            source_only_abi_deps = source_only_abi_deps,
+            class_abi_jar = class_abi_jar,
+            class_abi_output_dir = class_abi_output_dir,
+            encode_abi_command = encode_abi_command,
+            define_action = define_kotlincd_action,
+        )
+        return make_compile_outputs(
+            full_library = final_jar,
+            class_abi = class_abi,
+            source_only_abi = source_only_abi,
+            classpath_abi = classpath_abi,
+            classpath_abi_dir = classpath_abi_dir,
+            required_for_source_only_abi = required_for_source_only_abi,
+            annotation_processor_output = output_paths.annotations,
+        )
+    else:
+        return make_compile_outputs(
+            full_library = final_jar,
+            required_for_source_only_abi = required_for_source_only_abi,
+            annotation_processor_output = output_paths.annotations,
+        )

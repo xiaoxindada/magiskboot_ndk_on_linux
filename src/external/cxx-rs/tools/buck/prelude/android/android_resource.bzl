@@ -6,7 +6,7 @@
 # of this source tree.
 
 load("@prelude//java:java_providers.bzl", "get_java_packaging_info")
-load("@prelude//utils:utils.bzl", "expect")
+load("@prelude//utils:expect.bzl", "expect")
 load(":android_providers.bzl", "AndroidResourceInfo", "ExportedAndroidResourceInfo", "RESOURCE_PRIORITY_NORMAL", "merge_android_packageable_info")
 load(":android_toolchain.bzl", "AndroidToolchainInfo")
 
@@ -45,9 +45,11 @@ def android_resource_impl(ctx: AnalysisContext) -> list[Provider]:
         resource_info = AndroidResourceInfo(
             raw_target = ctx.label.raw_target(),
             aapt2_compile_output = aapt2_compile_output,
+            allowlisted_locales = ctx.attrs.allowlisted_locales,
             allow_strings_as_assets_resource_filtering = not ctx.attrs.has_whitelisted_strings,
             assets = assets,
             manifest_file = ctx.attrs.manifest,
+            specified_r_dot_java_package = ctx.attrs.package,
             r_dot_java_package = r_dot_java_package,
             res = res,
             res_priority = RESOURCE_PRIORITY_NORMAL,
@@ -57,9 +59,11 @@ def android_resource_impl(ctx: AnalysisContext) -> list[Provider]:
         resource_info = AndroidResourceInfo(
             raw_target = ctx.label.raw_target(),
             aapt2_compile_output = None,
+            allowlisted_locales = ctx.attrs.allowlisted_locales,
             allow_strings_as_assets_resource_filtering = not ctx.attrs.has_whitelisted_strings,
             assets = assets,
             manifest_file = ctx.attrs.manifest,
+            specified_r_dot_java_package = None,
             r_dot_java_package = None,
             res = None,
             res_priority = RESOURCE_PRIORITY_NORMAL,
@@ -75,7 +79,7 @@ def android_resource_impl(ctx: AnalysisContext) -> list[Provider]:
 def aapt2_compile(
         ctx: AnalysisContext,
         resources_dir: Artifact,
-        android_toolchain: AndroidToolchainInfo.type,
+        android_toolchain: AndroidToolchainInfo,
         skip_crunch_pngs: bool = False,
         identifier: [str, None] = None) -> Artifact:
     aapt2_command = cmd_args(android_toolchain.aapt2)

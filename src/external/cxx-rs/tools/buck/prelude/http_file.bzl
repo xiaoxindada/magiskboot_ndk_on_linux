@@ -5,7 +5,8 @@
 # License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 # of this source tree.
 
-load("@prelude//utils:utils.bzl", "expect", "value_or")
+load("@prelude//utils:expect.bzl", "expect")
+load("@prelude//utils:utils.bzl", "value_or")
 
 def http_file_shared(
         actions: AnalysisActions,
@@ -14,7 +15,7 @@ def http_file_shared(
         vpnless_url: [None, str],
         is_executable: bool,
         is_exploded_zip: bool,
-        unzip_tool: [RunInfo.type, None],
+        unzip_tool: [RunInfo, None],
         sha1: [None, str],
         sha256 = [None, str]) -> list[Provider]:
     output = actions.declare_output(name)

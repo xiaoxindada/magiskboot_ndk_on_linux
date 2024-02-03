@@ -7,6 +7,10 @@
 
 load("@prelude//:paths.bzl", "paths")
 load(
+    "@prelude//apple:xcode.bzl",
+    "get_project_root_file",
+)
+load(
     "@prelude//cxx:compile.bzl",
     "CxxSrcWithFlags",  # @unused Used as a type
 )
@@ -31,19 +35,21 @@ load(
     "LinkStyle",
     "Linkage",
     "MergedLinkInfo",
-    "merge_link_infos",
+    "create_merged_link_info_for_propagation",
 )
 load(
     "@prelude//linking:shared_libraries.bzl",
     "SharedLibraryInfo",
     "merge_shared_libraries",
 )
+load("@prelude//os_lookup:defs.bzl", "OsLookup")
+load("@prelude//utils:expect.bzl", "expect")
 load(
     "@prelude//utils:utils.bzl",
-    "expect",
     "map_idx",
 )
 load(":compile.bzl", "GoPkgCompileInfo", "compile", "get_filtered_srcs", "get_inherited_compile_pkgs")
+load(":coverage.bzl", "GoCoverageMode", "cover_srcs")
 load(":link.bzl", "GoPkgLinkInfo", "get_inherited_link_pkgs")
 load(":packages.bzl", "GoPkg", "go_attr_pkg_name", "merge_pkgs")
 load(":toolchain.bzl", "GoToolchainInfo", "get_toolchain_cmd_args")
@@ -58,8 +64,8 @@ _LINKAGE_FOR_LINK_STYLE = {
 def _cgo(
         ctx: AnalysisContext,
         srcs: list[Artifact],
-        own_pre: list[CPreprocessor.type],
-        inherited_pre: list[CPreprocessorInfo.type]) -> (list[Artifact], list[Artifact], list[Artifact]):
+        own_pre: list[CPreprocessor],
+        inherited_pre: list[CPreprocessorInfo]) -> (list[Artifact], list[Artifact], list[Artifact]):
     """
     Run `cgo` on `.go` sources to generate Go, C, and C-Header sources.
     """
@@ -95,14 +101,51 @@ def _cgo(
     args = cmd_args()
     args.add(cmd_args(go_toolchain.cgo, format = "--cgo={}"))
 
+    c_compiler = cxx_toolchain.c_compiler_info
+    linker = cxx_toolchain.linker_info
+
+    ldflags = cmd_args(
+        linker.linker_flags,
+        go_toolchain.external_linker_flags,
+    )
+
+    # Construct the full C/C++ command needed to preprocess/compile sources.
+    cxx_cmd = cmd_args()
+    cxx_cmd.add(c_compiler.compiler)
+    cxx_cmd.add(c_compiler.preprocessor_flags)
+    cxx_cmd.add(c_compiler.compiler_flags)
+    cxx_cmd.add(pre_args)
+    cxx_cmd.add(pre_include_dirs)
+
+    # Passing the same value as go-build, because our -g flags break cgo
+    # in some buck modes
+    cxx_cmd.add("-g")
+
+    # Wrap the C/C++ command in a wrapper script to avoid arg length limits.
+    is_win = ctx.attrs._exec_os_type[OsLookup].platform == "windows"
+    cxx_sh = cmd_args(
+        [
+            cmd_args(cxx_cmd, quote = "shell"),
+            "%*" if is_win else "\"$@\"",
+        ],
+        delimiter = " ",
+    )
+    cxx_wrapper, _ = ctx.actions.write(
+        "__{}_cxx__.{}".format(ctx.label.name, "bat" if is_win else "sh"),
+        ([] if is_win else ["#!/bin/sh"]) + [cxx_sh],
+        allow_args = True,
+        is_executable = True,
+    )
+    args.add(cmd_args(cxx_wrapper, format = "--env-cc={}"))
+    args.add(cmd_args(ldflags, format = "--env-ldflags={}"))
+    args.hidden(cxx_cmd)
+
     # TODO(agallagher): cgo outputs a dir with generated sources, but I'm not
     # sure how to pass in an output dir *and* enumerate the sources we know will
     # generated w/o v2 complaining that the output dir conflicts with the nested
     # artifacts.
     args.add(cmd_args(go_srcs[0].as_output(), format = "--output={}/.."))
-    args.add(cmd_args(cxx_toolchain.c_compiler_info.preprocessor, format = "--cpp={}"))
-    args.add(cmd_args(pre_args, format = "--cpp={}"))
-    args.add(cmd_args(pre_include_dirs, format = "--cpp={}"))
+
     args.add(srcs)
 
     argsfile = ctx.actions.declare_output(paths.join(gen_dir, ".cgo.argsfile"))
@@ -116,13 +159,30 @@ def _cgo(
 
     return go_srcs, c_headers, c_srcs
 
+def _compile_with_coverage(ctx: AnalysisContext, pkg_name: str, srcs: cmd_args, coverage_mode: GoCoverageMode, shared: bool = False) -> (Artifact, cmd_args):
+    cov_res = cover_srcs(ctx, pkg_name, coverage_mode, srcs, shared)
+    srcs = cov_res.srcs
+    coverage_vars = cov_res.variables
+    coverage_pkg = compile(
+        ctx,
+        pkg_name,
+        srcs = srcs,
+        deps = ctx.attrs.deps + ctx.attrs.exported_deps,
+        coverage_mode = coverage_mode,
+        shared = shared,
+    )
+    return (coverage_pkg, coverage_vars)
+
 def cgo_library_impl(ctx: AnalysisContext) -> list[Provider]:
     pkg_name = go_attr_pkg_name(ctx)
+
+    project_root_file = get_project_root_file(ctx)
 
     # Gather preprocessor inputs.
     (own_pre, _) = cxx_private_preprocessor_info(
         ctx,
         cxx_get_regular_cxx_headers_layout(ctx),
+        project_root_file = project_root_file,
     )
     inherited_pre = cxx_inherited_preprocessor_infos(ctx.attrs.deps)
 
@@ -169,7 +229,6 @@ def cgo_library_impl(ctx: AnalysisContext) -> list[Provider]:
         [own_pre, cgo_headers_pre],
         inherited_pre,
         [],
-        None,
         linkage,
     )
 
@@ -195,10 +254,15 @@ def cgo_library_impl(ctx: AnalysisContext) -> list[Provider]:
         deps = ctx.attrs.deps + ctx.attrs.exported_deps,
         shared = True,
     )
+    coverage_shared = {mode: _compile_with_coverage(ctx, pkg_name, all_srcs, mode, True) for mode in GoCoverageMode}
+    coverage_static = {mode: _compile_with_coverage(ctx, pkg_name, all_srcs, mode, False) for mode in GoCoverageMode}
     pkgs = {
         pkg_name: GoPkg(
             shared = shared_pkg,
             static = static_pkg,
+            cgo = True,
+            coverage_shared = coverage_shared,
+            coverage_static = coverage_static,
         ),
     }
 
@@ -216,7 +280,7 @@ def cgo_library_impl(ctx: AnalysisContext) -> list[Provider]:
             pkgs,
             get_inherited_link_pkgs(ctx.attrs.deps + ctx.attrs.exported_deps),
         ])),
-        merge_link_infos(ctx, filter(None, [d.get(MergedLinkInfo) for d in ctx.attrs.deps])),
+        create_merged_link_info_for_propagation(ctx, filter(None, [d.get(MergedLinkInfo) for d in ctx.attrs.deps])),
         merge_shared_libraries(
             ctx.actions,
             deps = filter(None, map_idx(SharedLibraryInfo, ctx.attrs.deps)),

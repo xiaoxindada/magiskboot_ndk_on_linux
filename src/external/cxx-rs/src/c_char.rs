@@ -6,7 +6,7 @@ pub type c_char = c_char_definition::c_char;
 #[cfg(all(test, feature = "std"))]
 const _: self::c_char = 0 as std::os::raw::c_char;
 
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 mod c_char_definition {
     // These are the targets on which c_char is unsigned.
     #[cfg(any(

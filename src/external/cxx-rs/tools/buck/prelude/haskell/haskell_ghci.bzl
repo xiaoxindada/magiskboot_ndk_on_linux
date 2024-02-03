@@ -17,15 +17,17 @@ load(
     "link_options",
 )
 load(
-    "@prelude//haskell:haskell.bzl",
+    "@prelude//haskell:compile.bzl",
     "HaskellLibraryInfo",
     "HaskellLibraryProvider",
-    "HaskellToolchainInfo",
     "PackagesInfo",
-    "attr_deps",
-    "get_artifact_suffix",
     "get_packages_info",
 )
+load(
+    "@prelude//haskell:toolchain.bzl",
+    "HaskellToolchainInfo",
+)
+load("@prelude//haskell:util.bzl", "attr_deps", "get_artifact_suffix")
 load("@prelude//linking:execution_preference.bzl", "LinkExecutionPreference")
 load(
     "@prelude//linking:link_info.bzl",
@@ -33,8 +35,9 @@ load(
     "LinkInfo",
     "LinkStyle",
     "Linkage",
-    "get_actual_link_style",
+    "get_lib_output_style",
     "set_linkable_link_whole",
+    "to_link_strategy",
 )
 load(
     "@prelude//linking:linkable_graph.bzl",
@@ -76,14 +79,14 @@ HaskellOmnibusData = record(
 
 def _write_final_ghci_script(
         ctx: AnalysisContext,
-        omnibus_data: HaskellOmnibusData.type,
-        packages_info: PackagesInfo.type,
-        packagedb_args: "cmd_args",
-        prebuilt_packagedb_args: "cmd_args",
+        omnibus_data: HaskellOmnibusData,
+        packages_info: PackagesInfo,
+        packagedb_args: cmd_args,
+        prebuilt_packagedb_args: cmd_args,
         iserv_script: Artifact,
         start_ghci_file: Artifact,
         ghci_bin: Artifact,
-        haskell_toolchain: HaskellToolchainInfo.type,
+        haskell_toolchain: HaskellToolchainInfo,
         ghci_script_template: Artifact,
         enable_profiling: bool) -> Artifact:
     srcs = " ".join(
@@ -110,7 +113,7 @@ def _write_final_ghci_script(
         "-fexternal-dynamic-refs",
     ])
 
-    if (enable_profiling):
+    if enable_profiling:
         compiler_flags.add([
             "-prof",
             "-osuf p_o",
@@ -138,9 +141,14 @@ def _write_final_ghci_script(
 
     return final_ghci_script
 
-def _build_haskell_omnibus_so(
-        ctx: AnalysisContext) -> HaskellOmnibusData.type:
+def _build_haskell_omnibus_so(ctx: AnalysisContext) -> HaskellOmnibusData:
     link_style = LinkStyle("static_pic")
+    if False:
+        # TODO(nga): typechecker raises issue here.
+        def unknown():
+            pass
+
+        link_style = unknown()
 
     # pic_behavior = PicBehavior("always_enabled")
     pic_behavior = PicBehavior("supported")
@@ -162,7 +170,7 @@ def _build_haskell_omnibus_so(
 
     # Map node label to its dependencies' labels
     dep_graph = {
-        nlabel: get_deps_for_link(n, link_style, pic_behavior)
+        nlabel: get_deps_for_link(n, to_link_strategy(link_style), pic_behavior)
         for nlabel, n in graph_nodes.items()
     }
 
@@ -233,13 +241,13 @@ def _build_haskell_omnibus_so(
             # Not skipping these leads to duplicate symbol errors
             continue
 
-        actual_link_style = get_actual_link_style(
-            link_style,
+        output_style = get_lib_output_style(
+            to_link_strategy(link_style),
             node.preferred_linkage,
             pic_behavior = pic_behavior,
         )
 
-        li = get_link_info(node, actual_link_style)
+        li = get_link_info(node, output_style)
         linkables = [
             # All symbols need to be included in the omnibus so, even if
             # they're not being referenced yet, so we should enable
@@ -263,7 +271,13 @@ def _build_haskell_omnibus_so(
     for node_label in prebuilt_so_deps.keys():
         node = graph_nodes[node_label]
 
-        shared_li = node.link_infos.get(LinkStyle("shared"), None)
+        output_style = get_lib_output_style(
+            to_link_strategy(LinkStyle("shared")),
+            node.preferred_linkage,
+            pic_behavior = pic_behavior,
+        )
+
+        shared_li = node.link_infos.get(output_style, None)
         if shared_li != None:
             tp_deps_shared_link_infos[node_label] = shared_li.default
         for libname, linkObject in node.shared_libs.items():
@@ -309,17 +323,17 @@ def _build_haskell_omnibus_so(
 def _replace_macros_in_script_template(
         ctx: AnalysisContext,
         script_template: Artifact,
-        haskell_toolchain: HaskellToolchainInfo.type,
+        haskell_toolchain: HaskellToolchainInfo,
         # Optional artifacts
         ghci_bin: [Artifact, None] = None,
         start_ghci: [Artifact, None] = None,
         iserv_script: [Artifact, None] = None,
         squashed_so: [Artifact, None] = None,
         # Optional cmd_args
-        exposed_package_args: ["cmd_args", None] = None,
-        packagedb_args: ["cmd_args", None] = None,
-        prebuilt_packagedb_args: ["cmd_args", None] = None,
-        compiler_flags: ["cmd_args", None] = None,
+        exposed_package_args: [cmd_args, None] = None,
+        packagedb_args: [cmd_args, None] = None,
+        prebuilt_packagedb_args: [cmd_args, None] = None,
+        compiler_flags: [cmd_args, None] = None,
         # Optional string args
         srcs: [str, None] = None,
         output_name: [str, None] = None,
@@ -413,8 +427,8 @@ def _replace_macros_in_script_template(
 
 def _write_iserv_script(
         ctx: AnalysisContext,
-        preload_deps_info: GHCiPreloadDepsInfo.type,
-        haskell_toolchain: HaskellToolchainInfo.type,
+        preload_deps_info: GHCiPreloadDepsInfo,
+        haskell_toolchain: HaskellToolchainInfo,
         enable_profiling: bool) -> Artifact:
     ghci_iserv_template = haskell_toolchain.ghci_iserv_template
 
@@ -450,7 +464,7 @@ def _write_iserv_script(
 
 def _build_preload_deps_root(
         ctx: AnalysisContext,
-        haskell_toolchain: HaskellToolchainInfo.type) -> GHCiPreloadDepsInfo.type:
+        haskell_toolchain: HaskellToolchainInfo) -> GHCiPreloadDepsInfo:
     preload_deps = ctx.attrs.preload_deps
 
     preload_symlinks = {}
@@ -522,16 +536,16 @@ def _symlink_ghci_binary(ctx, ghci_bin: Artifact):
 
 def _first_order_haskell_deps(
         ctx: AnalysisContext,
-        _enable_profiling: bool) -> list[HaskellLibraryInfo.type]:
-    return dedupe(
-        flatten(
-            [
-                dep[HaskellLibraryProvider].lib.values()
-                for dep in ctx.attrs.deps
-                if HaskellLibraryProvider in dep
-            ],
-        ),
-    )
+        enable_profiling: bool) -> list[HaskellLibraryInfo]:
+    libs = []
+    for dep in ctx.attrs.deps:
+        if HaskellLibraryProvider in dep:
+            if enable_profiling:
+                libs.append(dep[HaskellLibraryProvider].prof_lib.values())
+            else:
+                libs.append(dep[HaskellLibraryProvider].lib.values())
+
+    return dedupe(flatten(libs))
 
 # Creates the start.ghci script used to load the packages during startup
 def _write_start_ghci(
@@ -607,6 +621,7 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
         ctx,
         link_style,
         specify_pkg_version = True,
+        enable_profiling = enable_profiling,
     )
 
     # Create package db symlinks
@@ -625,14 +640,14 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
                 package_symlinks_root,
                 lib.name,
             )
-            artifact_suffix = get_artifact_suffix(
-                link_style,
-                lib.profiling_enabled,
-            )
             lib_symlinks = {
-                ("hi-" + artifact_suffix): lib.import_dirs[0],
                 "packagedb": lib.db,
             }
+
+            for prof, import_dir in lib.import_dirs.items():
+                artifact_suffix = get_artifact_suffix(link_style, prof)
+                lib_symlinks["hi-" + artifact_suffix] = import_dir
+
             for o in lib.libs:
                 lib_symlinks[o.short_path] = o
 

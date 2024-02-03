@@ -9,13 +9,13 @@ load("@prelude//:genrule.bzl", "process_genrule")
 load("@prelude//android:android_providers.bzl", "AndroidResourceInfo", "merge_android_packageable_info")
 load("@prelude//js:js_providers.bzl", "JsBundleInfo")
 load("@prelude//js:js_utils.bzl", "RAM_BUNDLE_TYPES", "TRANSFORM_PROFILES", "get_apple_resource_providers_for_js_bundle", "get_bundle_name")
-load("@prelude//utils:utils.bzl", "expect")
+load("@prelude//utils:expect.bzl", "expect")
 
 def _build_js_bundle(
         ctx: AnalysisContext,
         bundle_name_out: str,
-        js_bundle_info: JsBundleInfo.type,
-        named_output: str) -> JsBundleInfo.type:
+        js_bundle_info: JsBundleInfo,
+        named_output: str) -> JsBundleInfo:
     env_vars = {
         "DEPENDENCIES": cmd_args(js_bundle_info.dependencies_file),
         "JS_BUNDLE_NAME": cmd_args(js_bundle_info.bundle_name),
@@ -75,8 +75,8 @@ def _build_js_bundle(
 def _get_extra_providers(
         ctx: AnalysisContext,
         skip_resources: bool,
-        initial_target: ["provider_collection", Dependency],
-        js_bundle_out: JsBundleInfo.type) -> list[Provider]:
+        initial_target: [ProviderCollection, Dependency],
+        js_bundle_out: JsBundleInfo) -> list[Provider]:
     providers = []
     android_resource_info = initial_target.get(AndroidResourceInfo)
     if android_resource_info:

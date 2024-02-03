@@ -14,10 +14,11 @@ load(
     "CxxToolchainInfo",
     "LinkerInfo",
     "PicBehavior",
+    "ShlibInterfacesMode",
 )
 load("@prelude//cxx:headers.bzl", "HeaderMode")
 load("@prelude//cxx:linker.bzl", "is_pdb_generated")
-load("@prelude//linking:link_info.bzl", "LinkStyle")
+load("@prelude//linking:link_info.bzl", "LinkOrdering", "LinkStyle")
 load("@prelude//linking:lto.bzl", "LtoMode")
 load("@prelude//toolchains/msvc:tools.bzl", "VisualStudio")
 load("@prelude//utils:cmd_script.bzl", "ScriptOs", "cmd_script")
@@ -26,7 +27,7 @@ def _system_cxx_toolchain_impl(ctx: AnalysisContext):
     """
     A very simple toolchain that is hardcoded to the current environment.
     """
-    archiver_args = ["ar", "rcs"]
+    archiver_args = ["ar"]
     archiver_type = "gnu"
     archiver_supports_argfiles = True
     asm_compiler = ctx.attrs.compiler
@@ -39,8 +40,9 @@ def _system_cxx_toolchain_impl(ctx: AnalysisContext):
     binary_extension = ""
     object_file_extension = "o"
     static_library_extension = "a"
-    shared_library_name_format = "lib{}.so"
-    shared_library_versioned_name_format = "lib{}.so.{}"
+    shared_library_name_default_prefix = "lib"
+    shared_library_name_format = "{}.so"
+    shared_library_versioned_name_format = "{}.so.{}"
     additional_linker_flags = []
     if host_info().os.is_macos:
         archiver_supports_argfiles = False
@@ -62,6 +64,7 @@ def _system_cxx_toolchain_impl(ctx: AnalysisContext):
         binary_extension = "exe"
         object_file_extension = "obj"
         static_library_extension = "lib"
+        shared_library_name_default_prefix = ""
         shared_library_name_format = "{}.dll"
         shared_library_versioned_name_format = "{}.dll"
         additional_linker_flags = ["msvcrt.lib"]
@@ -91,21 +94,24 @@ def _system_cxx_toolchain_impl(ctx: AnalysisContext):
                 type = linker_type,
                 link_binaries_locally = True,
                 archive_objects_locally = True,
-                use_archiver_flags = False,
+                use_archiver_flags = True,
                 static_dep_runtime_ld_flags = [],
                 static_pic_dep_runtime_ld_flags = [],
                 shared_dep_runtime_ld_flags = [],
                 independent_shlib_interface_linker_flags = [],
-                shlib_interfaces = "disabled",
+                shlib_interfaces = ShlibInterfacesMode("disabled"),
                 link_style = LinkStyle(ctx.attrs.link_style),
                 link_weight = 1,
                 binary_extension = binary_extension,
                 object_file_extension = object_file_extension,
+                shared_library_name_default_prefix = shared_library_name_default_prefix,
                 shared_library_name_format = shared_library_name_format,
                 shared_library_versioned_name_format = shared_library_versioned_name_format,
                 static_library_extension = static_library_extension,
                 force_full_hybrid_if_capable = False,
                 is_pdb_generated = is_pdb_generated(linker_type, ctx.attrs.link_flags),
+                produce_interface_from_stub_shared_library = True,
+                link_ordering = ctx.attrs.link_ordering,
             ),
             bolt_enabled = False,
             binary_utilities_info = BinaryUtilitiesInfo(
@@ -177,11 +183,12 @@ system_cxx_toolchain = rule(
         "cxx_compiler": attrs.string(default = "cl.exe" if host_info().os.is_windows else "clang++"),
         "cxx_flags": attrs.list(attrs.string(), default = []),
         "link_flags": attrs.list(attrs.string(), default = []),
+        "link_ordering": attrs.option(attrs.enum(LinkOrdering.values()), default = None),
         "link_style": attrs.string(default = "shared"),
         "linker": attrs.string(default = "link.exe" if host_info().os.is_windows else "clang++"),
-        "linker_wrapper": attrs.default_only(attrs.dep(providers = [RunInfo], default = "prelude//cxx/tools:linker_wrapper")),
-        "make_comp_db": attrs.default_only(attrs.dep(providers = [RunInfo], default = "prelude//cxx/tools:make_comp_db")),
-        "msvc_tools": attrs.default_only(attrs.dep(providers = [VisualStudio], default = "prelude//toolchains/msvc:msvc_tools")),
+        "linker_wrapper": attrs.default_only(attrs.exec_dep(providers = [RunInfo], default = "prelude//cxx/tools:linker_wrapper")),
+        "make_comp_db": attrs.default_only(attrs.exec_dep(providers = [RunInfo], default = "prelude//cxx/tools:make_comp_db")),
+        "msvc_tools": attrs.default_only(attrs.exec_dep(providers = [VisualStudio], default = "prelude//toolchains/msvc:msvc_tools")),
     },
     is_toolchain_rule = True,
 )

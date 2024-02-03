@@ -8,8 +8,16 @@
 load("@prelude//android:android_providers.bzl", "AndroidPackageableInfo", "merge_android_packageable_info")
 load("@prelude//android:android_toolchain.bzl", "AndroidToolchainInfo")
 load("@prelude//java:java_providers.bzl", "get_all_java_packaging_deps")
-load("@prelude//linking:shared_libraries.bzl", "SharedLibraryInfo", "merge_shared_libraries", "traverse_shared_library_info")
-load("@prelude//utils:utils.bzl", "expect", "flatten")
+load(
+    "@prelude//linking:shared_libraries.bzl",
+    "SharedLibrary",  # @unused Used as type
+    "SharedLibraryInfo",
+    "merge_shared_libraries",
+    "traverse_shared_library_info",
+)
+load("@prelude//utils:expect.bzl", "expect")
+load("@prelude//utils:set.bzl", "set")
+load("@prelude//utils:utils.bzl", "flatten")
 
 # "Voltron" gives us the ability to split our Android APKs into different "modules". These
 # modules can then be downloaded on demand rather than shipped with the "main" APK.
@@ -135,18 +143,21 @@ def get_target_to_module_mapping(ctx: AnalysisContext, deps_by_platform: dict[st
 def _get_base_cmd_and_output(
         actions: AnalysisActions,
         label: Label,
-        android_packageable_infos: list[AndroidPackageableInfo.type],
-        shared_libraries: list["SharedLibrary"],
-        android_toolchain: AndroidToolchainInfo.type,
+        android_packageable_infos: list[AndroidPackageableInfo],
+        shared_libraries: list[SharedLibrary],
+        android_toolchain: AndroidToolchainInfo,
         application_module_configs: dict[str, list[Dependency]],
         application_module_dependencies: [dict[str, list[str]], None],
         application_module_blocklist: [list[list[Dependency]], None]) -> (cmd_args, Artifact):
     deps_map = {}
+    primary_apk_deps = set()
     for android_packageable_info in android_packageable_infos:
         if android_packageable_info.deps:
             for deps_info in android_packageable_info.deps.traverse():
                 deps = deps_map.setdefault(deps_info.name, [])
                 deps_map[deps_info.name] = dedupe(deps + deps_info.deps)
+                if deps_info.for_primary_apk:
+                    primary_apk_deps.add(deps_info.name)
 
     target_graph_file = actions.write_json("target_graph.json", deps_map)
     application_module_configs_map = {
@@ -176,8 +187,8 @@ def _get_base_cmd_and_output(
     used_by_wrap_script_libs = [str(shared_lib.label.raw_target()) for shared_lib in shared_libraries if shared_lib.for_primary_apk]
     prebuilt_native_library_dirs = flatten([list(android_packageable_info.prebuilt_native_library_dirs.traverse()) if android_packageable_info.prebuilt_native_library_dirs else [] for android_packageable_info in android_packageable_infos])
     prebuilt_native_library_targets_for_primary_apk = dedupe([str(native_lib_dir.raw_target) for native_lib_dir in prebuilt_native_library_dirs if native_lib_dir.for_primary_apk])
-    if application_module_blocklist or used_by_wrap_script_libs or prebuilt_native_library_targets_for_primary_apk:
-        all_blocklisted_deps = used_by_wrap_script_libs + prebuilt_native_library_targets_for_primary_apk
+    if application_module_blocklist or used_by_wrap_script_libs or prebuilt_native_library_targets_for_primary_apk or primary_apk_deps.size() > 0:
+        all_blocklisted_deps = used_by_wrap_script_libs + prebuilt_native_library_targets_for_primary_apk + primary_apk_deps.list()
         if application_module_blocklist:
             all_blocklisted_deps.extend([str(blocklisted_dep.label.raw_target()) for blocklisted_dep in flatten(application_module_blocklist)])
 
@@ -202,12 +213,12 @@ def all_targets_in_root_module(_module: str) -> str:
 
 APKModuleGraphInfo = record(
     module_list = list[str],
-    target_to_module_mapping_function = "function",
-    module_to_canary_class_name_function = "function",
-    module_to_module_deps_function = "function",
+    target_to_module_mapping_function = typing.Callable,
+    module_to_canary_class_name_function = typing.Callable,
+    module_to_module_deps_function = typing.Callable,
 )
 
-def get_root_module_only_apk_module_graph_info() -> APKModuleGraphInfo.type:
+def get_root_module_only_apk_module_graph_info() -> APKModuleGraphInfo:
     def root_module_canary_class_name(module: str):
         expect(is_root_module(module))
         return "secondary"
@@ -226,7 +237,7 @@ def get_root_module_only_apk_module_graph_info() -> APKModuleGraphInfo.type:
 def get_apk_module_graph_info(
         ctx: AnalysisContext,
         apk_module_graph_file: Artifact,
-        artifacts) -> APKModuleGraphInfo.type:
+        artifacts) -> APKModuleGraphInfo:
     apk_module_graph_lines = artifacts[apk_module_graph_file].read_string().split("\n")
     module_count = int(apk_module_graph_lines[0])
     module_infos = apk_module_graph_lines[1:module_count + 1]

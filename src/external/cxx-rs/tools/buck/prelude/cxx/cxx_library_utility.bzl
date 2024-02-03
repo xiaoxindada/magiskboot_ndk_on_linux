@@ -5,18 +5,22 @@
 # License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 # of this source tree.
 
+load(
+    "@prelude//:artifacts.bzl",
+    "ArtifactOutputs",  # @unused Used as a type
+    "single_artifact",
+)
 load("@prelude//:paths.bzl", "paths")
 load(
     "@prelude//linking:link_info.bzl",
+    "LinkStrategy",
     "LinkStyle",
     "Linkage",
+    "LinkerFlags",
     "MergedLinkInfo",
-    "merge_link_infos",
 )
-load("@prelude//utils:arglike.bzl", "ArgLike")  # @unused Used as a type
 load(
     "@prelude//utils:utils.bzl",
-    "expect",
     "flatten",
     "from_named_set",
 )
@@ -25,13 +29,10 @@ load(
     "CxxCompileOutput",  # @unused Used as a type
 )
 load(":cxx_context.bzl", "get_cxx_platform_info", "get_cxx_toolchain_info")
+load(":cxx_toolchain_types.bzl", "ShlibInterfacesMode")
 load(
     ":headers.bzl",
     "cxx_attr_header_namespace",
-)
-load(
-    ":linker.bzl",
-    "get_shared_library_name",
 )
 load(":platform.bzl", "cxx_by_platform")
 
@@ -48,32 +49,68 @@ def cxx_attr_deps(ctx: AnalysisContext) -> list[Dependency]:
 def cxx_attr_exported_deps(ctx: AnalysisContext) -> list[Dependency]:
     return ctx.attrs.exported_deps + flatten(cxx_by_platform(ctx, ctx.attrs.exported_platform_deps))
 
+def cxx_attr_linker_flags_all(ctx: AnalysisContext) -> LinkerFlags:
+    flags = cxx_attr_linker_flags(ctx)
+    post_flags = (
+        (ctx.attrs.post_linker_flags if hasattr(ctx.attrs, "post_linker_flags") else []) +
+        (flatten(cxx_by_platform(ctx, ctx.attrs.post_platform_linker_flags)) if hasattr(ctx.attrs, "post_platform_linker_flags") else [])
+    )
+    exported_flags = cxx_attr_exported_linker_flags(ctx)
+    exported_post_flags = cxx_attr_exported_post_linker_flags(ctx)
+    return LinkerFlags(
+        flags = flags,
+        post_flags = post_flags,
+        exported_flags = exported_flags,
+        exported_post_flags = exported_post_flags,
+    )
+
 def cxx_attr_exported_linker_flags(ctx: AnalysisContext) -> list[typing.Any]:
     return (
         ctx.attrs.exported_linker_flags +
-        flatten(cxx_by_platform(ctx, ctx.attrs.exported_platform_linker_flags))
+        (flatten(cxx_by_platform(ctx, ctx.attrs.exported_platform_linker_flags)) if hasattr(ctx.attrs, "exported_platform_linker_flags") else [])
     )
 
 def cxx_attr_exported_post_linker_flags(ctx: AnalysisContext) -> list[typing.Any]:
     return (
         ctx.attrs.exported_post_linker_flags +
-        flatten(cxx_by_platform(ctx, ctx.attrs.exported_post_platform_linker_flags))
+        (flatten(cxx_by_platform(ctx, ctx.attrs.exported_post_platform_linker_flags)) if hasattr(ctx.attrs, "exported_post_platform_linker_flags") else [])
     )
 
-def cxx_inherited_link_info(ctx, first_order_deps: list[Dependency]) -> MergedLinkInfo.type:
+def cxx_inherited_link_info(first_order_deps: list[Dependency]) -> list[MergedLinkInfo]:
+    """
+    Returns the list of MergedLinkInfo from the dependencies, filtering out those without a MergedLinkInfo
+    """
+
     # We filter out nones because some non-cxx rule without such providers could be a dependency, for example
     # cxx_binary "fbcode//one_world/cli/util/process_wrapper:process_wrapper" depends on
     # python_library "fbcode//third-party-buck/$platform/build/glibc:__project__"
-    return merge_link_infos(ctx, filter(None, [x.get(MergedLinkInfo) for x in first_order_deps]))
+    return filter(None, [x.get(MergedLinkInfo) for x in first_order_deps])
 
 # Linker flags
 def cxx_attr_linker_flags(ctx: AnalysisContext) -> list[typing.Any]:
     return (
         ctx.attrs.linker_flags +
-        flatten(cxx_by_platform(ctx, ctx.attrs.platform_linker_flags))
+        (flatten(cxx_by_platform(ctx, ctx.attrs.platform_linker_flags)) if hasattr(ctx.attrs, "platform_linker_flags") else [])
     )
 
-def cxx_attr_link_style(ctx: AnalysisContext) -> LinkStyle.type:
+# Even though we're returning the shared library links, we must still
+# respect the `link_style` attribute of the target which controls how
+# all deps get linked. For example, you could be building the shared
+# output of a library which has `link_style = "static"`.
+#
+# The fallback equivalent code in Buck v1 is in CxxLibraryFactor::createBuildRule()
+# where link style is determined using the `linkableDepType` variable.
+
+# Note if `static` link style is requested, we assume `static_pic`
+# instead, so that code in the shared library can be correctly
+# loaded in the address space of any process at any address.
+def cxx_attr_link_strategy(attrs: typing.Any) -> LinkStrategy:
+    value = attrs.link_style if attrs.link_style != None else "shared"
+    if value == "static":
+        value = "static_pic"
+    return LinkStrategy(value)
+
+def cxx_attr_link_style(ctx: AnalysisContext) -> LinkStyle:
     if ctx.attrs.link_style != None:
         return LinkStyle(ctx.attrs.link_style)
     if ctx.attrs.defaults != None:
@@ -85,7 +122,7 @@ def cxx_attr_link_style(ctx: AnalysisContext) -> LinkStyle.type:
                 return s
     return get_cxx_toolchain_info(ctx).linker_info.link_style
 
-def cxx_attr_preferred_linkage(ctx: AnalysisContext) -> Linkage.type:
+def cxx_attr_preferred_linkage(ctx: AnalysisContext) -> Linkage:
     preferred_linkage = ctx.attrs.preferred_linkage
 
     # force_static is deprecated, but it has precedence over preferred_linkage
@@ -94,7 +131,7 @@ def cxx_attr_preferred_linkage(ctx: AnalysisContext) -> Linkage.type:
 
     return Linkage(preferred_linkage)
 
-def cxx_attr_resources(ctx: AnalysisContext) -> dict[str, (Artifact, list[ArgLike])]:
+def cxx_attr_resources(ctx: AnalysisContext) -> dict[str, ArtifactOutputs]:
     """
     Return the resources provided by this rule, as a map of resource name to
     a tuple of the resource artifact and any "other" outputs exposed by it.
@@ -105,41 +142,9 @@ def cxx_attr_resources(ctx: AnalysisContext) -> dict[str, (Artifact, list[ArgLik
 
     # Use getattr, as apple rules don't have a `resources` parameter.
     for name, resource in from_named_set(getattr(ctx.attrs, "resources", {})).items():
-        if type(resource) == "artifact":
-            other = []
-        else:
-            info = resource[DefaultInfo]
-            expect(
-                len(info.default_outputs) == 1,
-                "expected exactly one default output from {} ({})"
-                    .format(resource, info.default_outputs),
-            )
-            [resource] = info.default_outputs
-            other = info.other_outputs
-        resources[paths.join(namespace, name)] = (resource, other)
+        resources[paths.join(namespace, name)] = single_artifact(resource)
 
     return resources
-
-def cxx_mk_shlib_intf(
-        ctx: AnalysisContext,
-        name: str,
-        shared_lib: [Artifact, "promise"]) -> Artifact:
-    """
-    Convert the given shared library into an interface used for linking.
-    """
-    linker_info = get_cxx_toolchain_info(ctx).linker_info
-    args = cmd_args(linker_info.mk_shlib_intf[RunInfo])
-    args.add(shared_lib)
-    output = ctx.actions.declare_output(
-        get_shared_library_name(linker_info, name + "-interface"),
-    )
-    args.add(output.as_output())
-    ctx.actions.run(
-        args,
-        category = "generate_shared_library_interface",
-        identifier = name,
-    )
-    return output
 
 def cxx_is_gnu(ctx: AnalysisContext) -> bool:
     return get_cxx_toolchain_info(ctx).linker_info.type == "gnu"
@@ -154,7 +159,7 @@ def cxx_use_shlib_intfs(ctx: AnalysisContext) -> bool:
         return False
 
     linker_info = get_cxx_toolchain_info(ctx).linker_info
-    return linker_info.shlib_interfaces != "disabled"
+    return linker_info.shlib_interfaces != ShlibInterfacesMode("disabled")
 
 def cxx_platform_supported(ctx: AnalysisContext) -> bool:
     """
@@ -170,7 +175,7 @@ def cxx_platform_supported(ctx: AnalysisContext) -> bool:
         get_cxx_platform_info(ctx).name,
     )
 
-def cxx_objects_sub_targets(outs: list[CxxCompileOutput.type]) -> dict[str, list[Provider]]:
+def cxx_objects_sub_targets(outs: list[CxxCompileOutput]) -> dict[str, list[Provider]]:
     objects_sub_targets = {}
     for obj in outs:
         sub_targets = {}

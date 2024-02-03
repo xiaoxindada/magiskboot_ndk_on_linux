@@ -5,7 +5,11 @@
 # License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 # of this source tree.
 
-load("@prelude//:artifacts.bzl", "unpack_artifact_map")
+load(
+    "@prelude//:artifacts.bzl",
+    "ArtifactOutputs",  # @unused Used as a type
+    "unpack_artifact_map",
+)
 load("@prelude//:paths.bzl", "paths")
 load(
     "@prelude//:resources.bzl",
@@ -32,7 +36,8 @@ load(
 load("@prelude//linking:shared_libraries.bzl", "SharedLibraryInfo", "merge_shared_libraries")
 load("@prelude//python:toolchain.bzl", "PythonPlatformInfo", "get_platform_attr")
 load("@prelude//utils:arglike.bzl", "ArgLike")  # @unused Used as a type
-load("@prelude//utils:utils.bzl", "expect", "flatten", "from_named_set")
+load("@prelude//utils:expect.bzl", "expect")
+load("@prelude//utils:utils.bzl", "flatten", "from_named_set")
 load(":compile.bzl", "PycInvalidationMode", "compile_manifests")
 load(
     ":manifest.bzl",
@@ -93,7 +98,7 @@ def qualify_srcs(
 def create_python_needed_coverage_info(
         label: Label,
         base_module: [None, str],
-        srcs: list[str]) -> PythonNeededCoverageInfo.type:
+        srcs: list[str]) -> PythonNeededCoverageInfo:
     prefix = dest_prefix(label, base_module)
     return PythonNeededCoverageInfo(
         modules = {src: prefix + src for src in srcs},
@@ -102,14 +107,14 @@ def create_python_needed_coverage_info(
 def create_python_library_info(
         actions: AnalysisActions,
         label: Label,
-        srcs: [ManifestInfo.type, None] = None,
-        src_types: [ManifestInfo.type, None] = None,
-        bytecode: [dict[PycInvalidationMode.type, ManifestInfo.type], None] = None,
-        dep_manifest: [ManifestInfo.type, None] = None,
-        resources: [(ManifestInfo.type, list[ArgLike]), None] = None,
-        extensions: [dict[str, LinkedObject.type], None] = None,
-        deps: list[PythonLibraryInfo.type] = [],
-        shared_libraries: list[SharedLibraryInfo.type] = []):
+        srcs: [ManifestInfo, None] = None,
+        src_types: [ManifestInfo, None] = None,
+        bytecode: [dict[PycInvalidationMode, ManifestInfo], None] = None,
+        dep_manifest: [ManifestInfo, None] = None,
+        resources: [(ManifestInfo, list[ArgLike]), None] = None,
+        extensions: [dict[str, LinkedObject], None] = None,
+        deps: list[PythonLibraryInfo] = [],
+        shared_libraries: list[SharedLibraryInfo] = []):
     """
     Create a `PythonLibraryInfo` for a set of sources and deps
 
@@ -147,27 +152,26 @@ def create_python_library_info(
         shared_libraries = new_shared_libraries,
     )
 
-def gather_dep_libraries(raw_deps: list[list[Dependency]]) -> (list[PythonLibraryInfo.type], list[SharedLibraryInfo.type]):
+def gather_dep_libraries(raw_deps: list[Dependency]) -> (list[PythonLibraryInfo], list[SharedLibraryInfo]):
     """
     Takes a list of raw dependencies, and partitions them into python_library / shared library providers.
     Fails if a dependency is not one of these.
     """
     deps = []
     shared_libraries = []
-    for raw in raw_deps:
-        for dep in raw:
-            if PythonLibraryInfo in dep:
-                deps.append(dep[PythonLibraryInfo])
-            elif SharedLibraryInfo in dep:
-                shared_libraries.append(dep[SharedLibraryInfo])
-            else:
-                # TODO(nmj): This is disabled for the moment because of:
-                #                 - the 'genrule-hack' rules that are added as deps
-                #                   on third-party whls. Not quite sure what's up
-                #                   there, but shouldn't be necessary on v2.
-                #                   (e.g. fbsource//third-party/pypi/zstandard:0.12.0-genrule-hack)
-                #fail("Dependency {} is neither a python_library, nor a prebuilt_python_library".format(dep.label))
-                pass
+    for dep in raw_deps:
+        if PythonLibraryInfo in dep:
+            deps.append(dep[PythonLibraryInfo])
+        elif SharedLibraryInfo in dep:
+            shared_libraries.append(dep[SharedLibraryInfo])
+        else:
+            # TODO(nmj): This is disabled for the moment because of:
+            #                 - the 'genrule-hack' rules that are added as deps
+            #                   on third-party whls. Not quite sure what's up
+            #                   there, but shouldn't be necessary on v2.
+            #                   (e.g. fbsource//third-party/pypi/zstandard:0.12.0-genrule-hack)
+            #fail("Dependency {} is neither a python_library, nor a prebuilt_python_library".format(dep.label))
+            pass
     return (deps, shared_libraries)
 
 def _exclude_deps_from_omnibus(
@@ -197,7 +201,7 @@ def _attr_srcs(ctx: AnalysisContext) -> dict[str, Artifact]:
         all_srcs.update(from_named_set(srcs))
     return all_srcs
 
-def _attr_resources(ctx: AnalysisContext) -> dict[str, [Dependency, Artifact]]:
+def _attr_resources(ctx: AnalysisContext) -> dict[str, Artifact | Dependency]:
     python_platform = ctx.attrs._python_toolchain[PythonPlatformInfo]
     cxx_platform = ctx.attrs._cxx_toolchain[CxxPlatformInfo]
     all_resources = {}
@@ -206,7 +210,7 @@ def _attr_resources(ctx: AnalysisContext) -> dict[str, [Dependency, Artifact]]:
         all_resources.update(from_named_set(resources))
     return all_resources
 
-def py_attr_resources(ctx: AnalysisContext) -> dict[str, (Artifact, list[ArgLike])]:
+def py_attr_resources(ctx: AnalysisContext) -> dict[str, ArtifactOutputs]:
     """
     Return the resources provided by this rule, as a map of resource name to
     a tuple of the resource artifact and any "other" outputs exposed by it.
@@ -216,15 +220,15 @@ def py_attr_resources(ctx: AnalysisContext) -> dict[str, (Artifact, list[ArgLike
 
 def py_resources(
         ctx: AnalysisContext,
-        resources: dict[str, (Artifact, list[ArgLike])]) -> (ManifestInfo.type, list[ArgLike]):
+        resources: dict[str, ArtifactOutputs]) -> (ManifestInfo, list[ArgLike]):
     """
     Generate a manifest to wrap this rules resources.
     """
-    d = {name: resource for name, (resource, _) in resources.items()}
+    d = {name: resource.default_output for name, resource in resources.items()}
     hidden = []
-    for name, (resource, other) in resources.items():
-        for o in other:
-            if type(o) == "artifact" and o.basename == shared_libs_symlink_tree_name(resource):
+    for name, resource in resources.items():
+        for o in resource.nondebug_runtime_files:
+            if type(o) == "artifact" and o.basename == shared_libs_symlink_tree_name(resource.default_output):
                 # Package the binary's shared libs next to the binary
                 # (the path is stored in RPATH relative to the binary).
                 d[paths.join(paths.dirname(name), o.basename)] = o
@@ -283,10 +287,10 @@ def python_library_impl(ctx: AnalysisContext) -> list[Provider]:
             dep_manifest = create_dep_manifest_for_source_map(ctx, python_toolchain, qualified_srcs)
             sub_targets["dep-manifest"] = [DefaultInfo(default_output = dep_manifest.manifest, other_outputs = dep_manifest.artifacts)]
 
-    raw_deps = (
-        [ctx.attrs.deps] +
-        get_platform_attr(python_platform, cxx_platform, ctx.attrs.platform_deps)
-    )
+    raw_deps = ctx.attrs.deps
+    raw_deps.extend(flatten(
+        get_platform_attr(python_platform, cxx_platform, ctx.attrs.platform_deps),
+    ))
     deps, shared_libraries = gather_dep_libraries(raw_deps)
     library_info = create_python_library_info(
         ctx.actions,
@@ -309,13 +313,13 @@ def python_library_impl(ctx: AnalysisContext) -> list[Provider]:
     providers.append(DefaultInfo(sub_targets = sub_targets))
 
     # Create, augment and provide the linkable graph.
-    deps = flatten(raw_deps)
+    deps = raw_deps
     linkable_graph = create_linkable_graph(
         ctx,
         node = create_linkable_graph_node(
             ctx,
             # Add in any potential native root targets from our first-order deps.
-            roots = get_roots(ctx.label, deps),
+            roots = get_roots(deps),
             # Exclude preloaded deps from omnibus linking, to prevent preloading
             # the monolithic omnibus library.
             excluded = get_excluded(
@@ -343,7 +347,7 @@ def python_library_impl(ctx: AnalysisContext) -> list[Provider]:
     # C++ resources.
     providers.append(ResourceInfo(resources = gather_resources(
         label = ctx.label,
-        deps = flatten(raw_deps),
+        deps = raw_deps,
     )))
 
     return providers
