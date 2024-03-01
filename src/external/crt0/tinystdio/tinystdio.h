@@ -125,14 +125,14 @@ Update from  Cebotari Vladislav
 /* Set this to 0 if you do not want to provide
    tfp_sprintf/snprintf/vsprintf/vsnprintf */
 #ifndef TINYPRINTF_DEFINE_TFP_SPRINTF
-# define TINYPRINTF_DEFINE_TFP_SPRINTF 1
+# define TINYPRINTF_DEFINE_TFP_SPRINTF 0
 #endif
 
 /* Set this to 0 if you do not want tfp_printf and
    tfp_{vsn,sn,vs,s}printf to be also available as
    printf/{vsn,sn,vs,s}printf */
 #ifndef TINYPRINTF_OVERRIDE_LIBC
-# define TINYPRINTF_OVERRIDE_LIBC 1
+# define TINYPRINTF_OVERRIDE_LIBC 0
 #endif
 
 # define TINY_PRINTF_FP_PRECISION 6

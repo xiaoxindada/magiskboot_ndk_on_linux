@@ -10,10 +10,18 @@ void *memset(void *dst, int ch, size_t n) {
 }
 
 void *memmove(void *dst, const void *src, size_t n) {
-    return memcpy(dst, src, n);
+    if (dst < src) {
+        return memcpy(dst, src, n);
+    }
+    // Copy backwards
+    uint8_t *d = dst + n;
+    const uint8_t *s = src + n;
+    while (n--)
+        *--d = *--s;
+    return dst;
 }
 
-void *memcpy(void *dst, const void *src, size_t n) {
+void *memcpy(void * restrict dst, const void * restrict src, size_t n) {
     uint8_t *d = dst;
     const uint8_t *s = src;
     while (n--)
@@ -55,6 +63,16 @@ char *strchr(const char *s, int ch) {
     return (char *) s;
 }
 
+char *strrchr(const char *s, int ch) {
+    char c = ch;
+    const char *ret = NULL;
+    do {
+        if(*s == c)
+            ret = s;
+    } while(*s++);
+    return (char *) ret;
+}
+
 int strcmp(const char *lhs, const char *rhs) {
     while (*lhs && (*lhs == *rhs)) {
         ++lhs;
@@ -66,6 +84,13 @@ int strcmp(const char *lhs, const char *rhs) {
 size_t strlen(const char *str) {
     size_t l = 0;
     while (str[l])
+        ++l;
+    return l;
+}
+
+size_t strnlen(const char *s, size_t maxlen) {
+    size_t l = 0;
+    while (l < maxlen && s[l])
         ++l;
     return l;
 }

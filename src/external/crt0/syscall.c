@@ -1,5 +1,6 @@
-#define SYS_INLINE
+#include <sys/mman.h>
 
+#define SYS_INLINE
 #include "linux_syscall_support.h"
 
 // Some missing declarations
@@ -35,7 +36,6 @@ EXPORT_SYMBOL(symlink);
 EXPORT_SYMBOL(write);
 EXPORT_SYMBOL(writev);
 EXPORT_SYMBOL(unlink);
-EXPORT_SYMBOL(mmap);
 EXPORT_SYMBOL(munmap);
 EXPORT_SYMBOL(mremap);
 EXPORT_SYMBOL(readlink);
@@ -74,14 +74,57 @@ SYMBOL_ALIAS(openat64, openat);
 
 EXPORT_SYMBOL(fstat);
 EXPORT_SYMBOL(newfstatat);
+EXPORT_SYMBOL(mmap);
 SYMBOL_ALIAS(fstatat, newfstatat);
+SYMBOL_ALIAS(lseek64, lseek);
+SYMBOL_ALIAS(ftruncate64, ftruncate);
+SYMBOL_ALIAS(mmap64, mmap);
 
 #else
 
+_syscall2(int, ftruncate64, int, i, off64_t, off)
+_syscall6(void*, mmap2, void*, addr, size_t, size, int, prot, int, flag, int, fd, long, off)
+EXPORT_SYMBOL(ftruncate64);
 EXPORT_SYMBOL(fstat64);
 EXPORT_SYMBOL(fstatat64);
+EXPORT_SYMBOL(mmap2);
 SYMBOL_ALIAS(fstat, fstat64);
 SYMBOL_ALIAS(fstatat, fstatat64);
+
+// Source: bionic/libc/bionic/legacy_32_bit_support.cpp
+off64_t lseek64(int fd, off64_t off, int whence) {
+    off64_t result;
+    unsigned long off_hi = (unsigned long) (off >> 32);
+    unsigned long off_lo = (unsigned long) off;
+    if (sys__llseek(fd, off_hi, off_lo, &result, whence) < 0) {
+        return -1;
+    }
+    return result;
+}
+
+// Source: bionic/libc/bionic/mmap.cpp
+#define PAGE_SIZE 4096
+#define MMAP2_SHIFT 12 // 2**12 == 4096
+
+void *mmap64(void* addr, size_t size, int prot, int flags, int fd, off64_t offset) {
+    if (offset < 0 || (offset & ((1UL << MMAP2_SHIFT)-1)) != 0) {
+        errno = EINVAL;
+        return MAP_FAILED;
+    }
+
+    // Prevent allocations large enough for `end - start` to overflow.
+    size_t rounded = __BIONIC_ALIGN(size, PAGE_SIZE);
+    if (rounded < size || rounded > PTRDIFF_MAX) {
+        errno = ENOMEM;
+        return MAP_FAILED;
+    }
+
+    return sys_mmap2(addr, size, prot, flags, fd, offset >> MMAP2_SHIFT);
+}
+
+void *mmap(void *addr, size_t size, int prot, int flags, int fd, off_t offset) {
+    return mmap64(addr, size, prot, flags, fd, (off64_t) offset);
+}
 
 #endif
 
@@ -143,6 +186,10 @@ int remove(const char *path) {
         r = sys_unlinkat(AT_FDCWD, path, AT_REMOVEDIR);
     }
     return r;
+}
+
+int creat(const char *path, mode_t mode) {
+    return sys_open(path, O_WRONLY | O_CREAT | O_TRUNC, mode);
 }
 
 // Source: bionic/libc/bionic/abort.cpp

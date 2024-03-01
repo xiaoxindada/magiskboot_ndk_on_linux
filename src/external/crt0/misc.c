@@ -25,6 +25,15 @@ static char *__findenv(const char *name, int len, int *offset) {
     return (NULL);
 }
 
+char *getenv(const char *name) {
+	int offset = 0;
+	const char *np;
+
+	for (np = name; *np && *np != '='; ++np)
+		;
+	return (__findenv(name, (int)(np - name), &offset));
+}
+
 // Source: bionic/libc/upstream-openbsd/lib/libc/stdlib/setenv.c
 int setenv(const char *name, const char *value, int rewrite) {
     static char **lastenv;
@@ -165,30 +174,66 @@ int __cxa_atexit(void (*func) (void *), void * arg, void * dso_handle) {
 
 // Emulate pthread functions
 
-static pthread_key_t g_counter = 0;
-static void **g_key_values = NULL;
+typedef struct key_data {
+    void *data;
+    void (*dtor)(void*);
+    int used;
+} key_data;
+
+static pthread_key_t key_list_sz = 0;
+static key_data *key_list;
 
 int pthread_key_create(pthread_key_t *key_ptr, void (*dtor)(void*)) {
-    *key_ptr = g_counter++;
-    g_key_values = realloc(g_key_values, g_counter * sizeof(void*));
+    if (key_list_sz == 0) {
+        key_list_sz = 16;
+        key_list = calloc(key_list_sz, sizeof(key_data));
+    }
+
+    pthread_key_t k = 0;
+
+    // Find an empty slot
+    for (; k < key_list_sz; ++k) {
+        if (!key_list[k].used) {
+            goto set_key;
+        }
+    }
+    // Expand list
+    key_list_sz *= 2;
+    key_list = realloc(key_list, key_list_sz * sizeof(key_data));
+    memset(&key_list[k], 0, k * sizeof(key_data));
+
+set_key:
+    *key_ptr = k;
+    key_list[k].used = 1;
+    key_list[k].dtor = dtor;
     return 0;
 }
 
 int pthread_key_delete(pthread_key_t key) {
-    if (key < g_counter) {
-        g_key_values[key] = NULL;
+    if (key < key_list_sz) {
+        if (key_list[key].dtor && key_list[key].data) {
+            key_list[key].dtor(key_list[key].data);
+        }
+        key_list[key].data = NULL;
+        key_list[key].dtor = NULL;
+        key_list[key].used = 0;
     }
     return 0;
 }
 
 void *pthread_getspecific(pthread_key_t key) {
-    return key < g_counter ? g_key_values[key] : NULL;
+    if (key >= key_list_sz || !key_list[key].used) {
+        return NULL;
+    }
+    return key_list[key].data;
 }
 
 int pthread_setspecific(pthread_key_t key, const void *value) {
-    if (key < g_counter) {
-        g_key_values[key] = (void *) value;
+    if (key >= key_list_sz || !key_list[key].used) {
+        errno = EINVAL;
+        return 1;
     }
+    key_list[key].data = (void *) value;
     return 0;
 }
 
