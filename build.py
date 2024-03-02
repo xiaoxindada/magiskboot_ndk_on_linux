@@ -144,13 +144,6 @@ def cp_output(source, target):
     system(f"cp -af {source} {target}")
 
 
-def generate_binary_info(file):
-    rm_rf(file)
-    system(f"echo 'magisk.versionCode={config['versionCode']}' > {file}")
-    system(f"echo 'md5' >> {file}")
-    system(f"md5sum out/**/* >> {file}")
-
-
 def xz(data):
     return lzma.compress(data, preset=9, check=lzma.CHECK_NONE)
 
@@ -272,26 +265,6 @@ def setup_ndk():
         rm_rf(ndk_root)
         mv(f"ondk-{config['ondkVersion']}", ndk_root)
 
-    print("* Patching static libs")
-    for target in ["arm-linux-androideabi", "i686-linux-android"]:
-        arch = target.split("-")[0]
-        lib_dir = op.join(
-            ndk_root,
-            "toolchains",
-            "llvm",
-            "prebuilt",
-            f"{os_name}-x86_64",
-            "sysroot",
-            "usr",
-            "lib",
-            f"{target}",
-            "23",
-        )
-        if not op.exists(lib_dir):
-            continue
-        src_dir = op.join(LOCALDIR, "tools", "ndk-bins", arch)
-        cp_rf(src_dir, lib_dir)
-
 
 def run_ndk_build(flags):
     os.chdir(LOCALDIR)
@@ -327,31 +300,28 @@ def build_binary():
     if "magiskpolicy" in default_targets:
         flag += " B_POLICY=1"
 
-    if "test" in default_targets:
-        flag += " B_TEST=1"
-
-    if "magiskinit" in default_targets:
-        flag += " B_PRELOAD=1"
-
     if "resetprop" in default_targets:
         flag += " B_PROP=1"
 
-    if "magiskboot" in default_targets:
-        flag += " B_BOOT=1"
+    if "magiskinit" in default_targets:
+        flag += " B_PRELOAD=1"
 
     if flag:
         run_ndk_build(flag)
         cp_output(f"{libs}/*", out)
 
-    # magiskinit embeds preload.so
-
     flag = ""
 
     if "magiskinit" in default_targets:
+        # magiskinit embeds preload.so
+        dump_bin_header(args)
         flag += " B_INIT=1"
 
+    if "magiskboot" in default_targets:
+        flag += " B_BOOT=1"
+
     if flag:
-        dump_bin_header()
+        flag += " B_CRT0=1"
         run_ndk_build(flag)
         cp_output(f"{libs}/*", out)
 
@@ -364,7 +334,7 @@ def build_binary():
         run_ndk_build(flag)
         cp_output(f"{libs}/*", out)
 
-    generate_binary_info("out/magisk_version.txt")
+    system(f"echo magisk.versionCode={config['versionCode']} > out/magisk_version.txt")
 
 
 def update_code():
