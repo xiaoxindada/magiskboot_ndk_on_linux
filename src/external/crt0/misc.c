@@ -5,6 +5,19 @@
 #include <unistd.h>
 #include <pthread.h>
 
+// errno
+
+static int g_errno = 0;
+
+int *__errno(void) {
+    return &g_errno;
+}
+
+long __set_errno_internal(int n) {
+    g_errno = n;
+    return -1;
+}
+
 // Source: bionic/libc/upstream-openbsd/lib/libc/stdlib/getenv.c
 static char *__findenv(const char *name, int len, int *offset) {
     int i;

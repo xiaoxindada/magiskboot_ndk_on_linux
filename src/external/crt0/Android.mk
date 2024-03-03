@@ -14,16 +14,16 @@ LOCAL_EXPORT_LDFLAGS := -static -nostartfiles -nodefaultlibs \
 LOCAL_CFLAGS := -Wno-c99-designator -Wno-shift-op-parentheses
 
 LOCAL_SRC_FILES := \
-	malloc.c \
-	mem.c \
-	misc.c \
-	nolibc.c \
-	stdio.c \
-	syscall.c \
-	musl/vfprintf.c \
-	bionic/dirent.cpp \
-	bionic/strerror.cpp \
-	bionic/syscall-$(TARGET_ARCH).S \
-	tinystdio/tinystdio.c
+    crtbegin.c \
+    malloc.c \
+    mem.c \
+    misc.c \
+    stdio.c \
+    syscall.c \
+    bionic/dirent.cpp \
+    bionic/strerror.cpp \
+    bionic/syscall-$(TARGET_ARCH).S \
+    musl/vfprintf.c \
+    tinystdio/tinystdio.c
 
 include $(BUILD_STATIC_LIBRARY)
