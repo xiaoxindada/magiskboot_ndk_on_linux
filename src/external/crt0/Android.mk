@@ -23,6 +23,8 @@ LOCAL_SRC_FILES := \
     bionic/dirent.cpp \
     bionic/strerror.cpp \
     bionic/syscall-$(TARGET_ARCH).S \
+    musl/memmem.c \
+    musl/qsort.c \
     musl/vfprintf.c \
     tinystdio/tinystdio.c
 
