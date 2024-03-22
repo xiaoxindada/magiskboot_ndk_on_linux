@@ -20,14 +20,14 @@
 #define SELINUX_LOAD        SELINUX_MNT "/load"
 #define SELINUX_VERSION     SELINUX_MNT "/policyvers"
 
-using token_list = std::vector<const char *>;
-using argument = std::pair<token_list, bool>;
-using argument_list = std::vector<argument>;
+struct Xperm;
 
-#define ALL       nullptr
+using StrVec = rust::Vec<rust::Str>;
+using Xperms = rust::Vec<Xperm>;
 
 struct sepolicy {
     using c_str = const char *;
+    using Str = rust::Str;
 
     // Public static factory functions
     static sepolicy *from_data(char *data, size_t len);
@@ -37,43 +37,42 @@ struct sepolicy {
 
     // External APIs
     bool to_file(c_str file);
-    void parse_statement(rust::Str stmt);
     void load_rules(const std::string &rules);
     void load_rule_file(c_str file);
     void print_rules();
+    void parse_statement(c_str statement);
 
     // Operation on types
-    bool type(c_str name, c_str attr);
-    bool attribute(c_str name);
-    bool permissive(c_str type);
-    bool enforce(c_str type);
-    bool typeattribute(c_str type, c_str attr);
+    void type(Str type, StrVec attrs);
+    void attribute(Str names);
+    void permissive(StrVec types);
+    void enforce(StrVec types);
+    void typeattribute(StrVec types, StrVec attrs);
     bool exists(c_str type);
 
     // Access vector rules
-    bool allow(c_str src, c_str tgt, c_str cls, c_str perm);
-    bool deny(c_str src, c_str tgt, c_str cls, c_str perm);
-    bool auditallow(c_str src, c_str tgt, c_str cls, c_str perm);
-    bool dontaudit(c_str src, c_str tgt, c_str cls, c_str perm);
+    void allow(StrVec src, StrVec tgt, StrVec cls, StrVec perm);
+    void deny(StrVec src, StrVec tgt, StrVec cls, StrVec perm);
+    void auditallow(StrVec src, StrVec tgt, StrVec cls, StrVec perm);
+    void dontaudit(StrVec src, StrVec tgt, StrVec cls, StrVec perm);
 
     // Extended permissions access vector rules
-    bool allowxperm(c_str src, c_str tgt, c_str cls, const argument &xperm);
-    bool auditallowxperm(c_str src, c_str tgt, c_str cls, const argument &xperm);
-    bool dontauditxperm(c_str src, c_str tgt, c_str cls, const argument &xperm);
+    void allowxperm(StrVec src, StrVec tgt, StrVec cls, Xperms xperm);
+    void auditallowxperm(StrVec src, StrVec tgt, StrVec cls, Xperms xperm);
+    void dontauditxperm(StrVec src, StrVec tgt, StrVec cls, Xperms xperm);
 
     // Type rules
-    bool type_transition(c_str src, c_str tgt, c_str cls, c_str def, c_str obj = nullptr);
-    bool type_change(c_str src, c_str tgt, c_str cls, c_str def);
-    bool type_member(c_str src, c_str tgt, c_str cls, c_str def);
+    void type_transition(Str src, Str tgt, Str cls, Str def, Str obj);
+    void type_change(Str src, Str tgt, Str cls, Str def);
+    void type_member(Str src, Str tgt, Str cls, Str def);
 
     // File system labeling
-    bool genfscon(c_str fs_name, c_str path, c_str ctx);
+    void genfscon(Str fs_name, Str path, Str ctx);
 
     // Magisk
     void magisk_rules();
 
-    // Deprecate
-    bool create(c_str name) { return type(name, "domain"); }
+    void strip_dontaudit();
 
 protected:
     // Prevent anyone from accidentally creating an instance

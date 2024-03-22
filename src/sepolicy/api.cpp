@@ -1,104 +1,32 @@
 #include <base.hpp>
 
+#include "flags.h"
 #include "policy.hpp"
 
-#if 0
-// Print out all rules going through public API for debugging
-template <typename ...Args>
-static void dprint(const char *action, Args ...args) {
-    std::string s(action);
-    for (int i = 0; i < sizeof...(args); ++i) s += " %s";
-    s += "\n";
-    LOGD(s.data(), as_str(args)...);
-}
-#else
-#define dprint(...)
-#endif
+using Str = rust::Str;
 
-bool sepolicy::allow(const char *s, const char *t, const char *c, const char *p) {
-    dprint(__FUNCTION__, s, t, c, p);
-    return impl->add_rule(s, t, c, p, AVTAB_ALLOWED, false);
-}
-
-bool sepolicy::deny(const char *s, const char *t, const char *c, const char *p) {
-    dprint(__FUNCTION__, s, t, c, p);
-    return impl->add_rule(s, t, c, p, AVTAB_ALLOWED, true);
-}
-
-bool sepolicy::auditallow(const char *s, const char *t, const char *c, const char *p) {
-    dprint(__FUNCTION__, s, t, c, p);
-    return impl->add_rule(s, t, c, p, AVTAB_AUDITALLOW, false);
-}
-
-bool sepolicy::dontaudit(const char *s, const char *t, const char *c, const char *p) {
-    dprint(__FUNCTION__, s, t, c, p);
-    return impl->add_rule(s, t, c, p, AVTAB_AUDITDENY, true);
-}
-
-bool sepolicy::allowxperm(const char *s, const char *t, const char *c, const argument &xperm) {
-    dprint(__FUNCTION__, s, t, c, "ioctl", xperm);
-    return impl->add_xperm_rule(s, t, c, xperm, AVTAB_XPERMS_ALLOWED);
-}
-
-bool sepolicy::auditallowxperm(const char *s, const char *t, const char *c, const argument &xperm) {
-    dprint(__FUNCTION__, s, t, c, "ioctl", xperm);
-    return impl->add_xperm_rule(s, t, c, xperm, AVTAB_XPERMS_AUDITALLOW);
-}
-
-bool sepolicy::dontauditxperm(const char *s, const char *t, const char *c, const argument &xperm) {
-    dprint(__FUNCTION__, s, t, c, "ioctl", xperm);
-    return impl->add_xperm_rule(s, t, c, xperm, AVTAB_XPERMS_DONTAUDIT);
-}
-
-bool sepolicy::type_change(const char *s, const char *t, const char *c, const char *d) {
-    dprint(__FUNCTION__, s, t, c, d);
-    return impl->add_type_rule(s, t, c, d, AVTAB_CHANGE);
-}
-
-bool sepolicy::type_member(const char *s, const char *t, const char *c, const char *d) {
-    dprint(__FUNCTION__, s, t, c, d);
-    return impl->add_type_rule(s, t, c, d, AVTAB_MEMBER);
-}
-
-bool sepolicy::type_transition(const char *s, const char *t, const char *c, const char *d, const char *o) {
-    if (o) {
-        dprint(__FUNCTION__, s, t, c, d, o);
-        return impl->add_filename_trans(s, t, c, d, o);
+#if MAGISK_DEBUG
+template<typename Arg>
+std::string as_str(const Arg &arg) {
+    if constexpr (std::is_same_v<Arg, const char *> || std::is_same_v<Arg, char *>) {
+        return arg == nullptr ? "*" : arg;
+    } else if constexpr (std::is_same_v<Arg, Xperm>) {
+        return std::string(rust::xperm_to_string(arg));
     } else {
-        dprint(__FUNCTION__, s, t, c, d);
-        return impl->add_type_rule(s, t, c, d, AVTAB_TRANSITION);
+        return std::to_string(arg);
     }
 }
 
-bool sepolicy::permissive(const char *s) {
-    dprint(__FUNCTION__, s);
-    return impl->set_type_state(s, true);
+// Print out all rules going through public API for debugging
+template<typename ...Args>
+static void print_rule(const char *action, Args ...args) {
+    std::string s;
+    s = (... + (" " + as_str(args)));
+    LOGD("%s%s\n", action, s.data());
 }
-
-bool sepolicy::enforce(const char *s) {
-    dprint(__FUNCTION__, s);
-    return impl->set_type_state(s, false);
-}
-
-bool sepolicy::type(const char *name, const char *attr) {
-    dprint(__FUNCTION__, name, attr);
-    return impl->add_type(name, TYPE_TYPE) && impl->add_typeattribute(name, attr);
-}
-
-bool sepolicy::attribute(const char *name) {
-    dprint(__FUNCTION__, name);
-    return impl->add_type(name, TYPE_ATTRIB);
-}
-
-bool sepolicy::typeattribute(const char *type, const char *attr) {
-    dprint(__FUNCTION__, type, attr);
-    return impl->add_typeattribute(type, attr);
-}
-
-bool sepolicy::genfscon(const char *fs_name, const char *path, const char *ctx) {
-    dprint(__FUNCTION__, fs_name, path, ctx);
-    return impl->add_genfscon(fs_name, path, ctx);
-}
+#else
+#define print_rule(...) ((void) 0)
+#endif
 
 bool sepolicy::exists(const char *type) {
     return hashtab_search(impl->db->p_types.table, type) != nullptr;
@@ -108,6 +36,168 @@ void sepolicy::load_rule_file(const char *file) {
     rust::load_rule_file(*this, file);
 }
 
+void sepolicy::parse_statement(const char *data) {
+    rust::parse_statement(*this, data);
+}
+
+void sepolicy::magisk_rules() {
+    rust::magisk_rules(*this);
+}
+
 void sepolicy::load_rules(const std::string &rules) {
     rust::load_rules(*this, byte_view(rules, false));
+}
+
+template<typename F, typename ...T>
+requires(std::invocable<F, T...>)
+static inline void expand(F &&f, T &&...args) {
+    f(std::forward<T>(args)...);
+}
+
+template<typename ...T>
+static inline void expand(const Str &s, T &&...args) {
+    char buf[64];
+    if (s.length() >= sizeof(buf)) return;
+    if (s.empty()) {
+        expand(std::forward<T>(args)..., (char *) nullptr);
+    } else {
+        memcpy(buf, s.data(), s.length());
+        buf[s.length()] = '\0';
+        expand(std::forward<T>(args)..., buf);
+    }
+}
+
+template<typename ...T>
+static inline void expand(const StrVec &vec, T &&...args) {
+    if (vec.empty()) {
+        expand(std::forward<T>(args)..., (char *) nullptr);
+    } else {
+        for (auto &s : vec) {
+            expand(s, std::forward<T>(args)...);
+        }
+    }
+}
+
+template<typename ...T>
+static inline void expand(const Xperms &vec, T &&...args) {
+    for (auto &p : vec) {
+        expand(std::forward<T>(args)..., p);
+    }
+}
+
+void sepolicy::allow(StrVec src, StrVec tgt, StrVec cls, StrVec perm) {
+    expand(src, tgt, cls, perm, [this](auto ...args) {
+        print_rule("allow", args...);
+        impl->add_rule(args..., AVTAB_ALLOWED, false);
+    });
+}
+
+void sepolicy::deny(StrVec src, StrVec tgt, StrVec cls, StrVec perm) {
+    expand(src, tgt, cls, perm, [this](auto ...args) {
+        print_rule("deny", args...);
+        impl->add_rule(args..., AVTAB_ALLOWED, true);
+    });
+}
+
+void sepolicy::auditallow(StrVec src, StrVec tgt, StrVec cls, StrVec perm) {
+    expand(src, tgt, cls, perm, [this](auto ...args) {
+        print_rule("auditallow", args...);
+        impl->add_rule(args..., AVTAB_AUDITALLOW, false);
+    });
+}
+
+void sepolicy::dontaudit(StrVec src, StrVec tgt, StrVec cls, StrVec perm) {
+    expand(src, tgt, cls, perm, [this](auto ...args) {
+        print_rule("dontaudit", args...);
+        impl->add_rule(args..., AVTAB_AUDITDENY, true);
+    });
+}
+
+void sepolicy::permissive(StrVec types) {
+    expand(types, [this](auto ...args) {
+        print_rule("permissive", args...);
+        impl->set_type_state(args..., true);
+    });
+}
+
+void sepolicy::enforce(StrVec types) {
+    expand(types, [this](auto ...args) {
+        print_rule("enforce", args...);
+        impl->set_type_state(args..., false);
+    });
+}
+
+void sepolicy::typeattribute(StrVec types, StrVec attrs) {
+    expand(types, attrs, [this](auto ...args) {
+        print_rule("typeattribute", args...);
+        impl->add_typeattribute(args...);
+    });
+}
+
+void sepolicy::type(Str type, StrVec attrs) {
+    expand(type, attrs, [this](auto name, auto attr) {
+        print_rule("type", name, attr);
+        impl->add_type(name, TYPE_TYPE) && impl->add_typeattribute(name, attr);
+    });
+}
+
+void sepolicy::attribute(Str name) {
+    expand(name, [this](auto ...args) {
+        print_rule("name", args...);
+        impl->add_type(args..., TYPE_ATTRIB);
+    });
+}
+
+void sepolicy::type_transition(Str src, Str tgt, Str cls, Str def, Str obj) {
+    expand(src, tgt, cls, def, obj, [this](auto s, auto t, auto c, auto d, auto o) {
+        if (o) {
+            print_rule("type_transition", s, t, c, d, o);
+            impl->add_filename_trans(s, t, c, d, o);
+        } else {
+            print_rule("type_transition", s, t, c, d);
+            impl->add_type_rule(s, t, c, d, AVTAB_TRANSITION);
+        }
+    });
+}
+
+void sepolicy::type_change(Str src, Str tgt, Str cls, Str def) {
+    expand(src, tgt, cls, def, [this](auto ...args) {
+        print_rule("type_change", args...);
+        impl->add_type_rule(args..., AVTAB_CHANGE);
+    });
+}
+
+void sepolicy::type_member(Str src, Str tgt, Str cls, Str def) {
+    expand(src, tgt, cls, def, [this](auto ...args) {
+        print_rule("type_member", args...);
+        impl->add_type_rule(args..., AVTAB_MEMBER);
+    });
+}
+
+void sepolicy::genfscon(Str fs_name, Str path, Str ctx) {
+    expand(fs_name, path, ctx, [this](auto ...args) {
+        print_rule("genfscon", args...);
+        impl->add_genfscon(args...);
+    });
+}
+
+void sepolicy::allowxperm(StrVec src, StrVec tgt, StrVec cls, Xperms xperm) {
+    expand(src, tgt, cls, xperm, [this](auto ...args) {
+        print_rule("allowxperm", args...);
+        impl->add_xperm_rule(args..., AVTAB_XPERMS_ALLOWED);
+    });
+}
+
+void sepolicy::auditallowxperm(StrVec src, StrVec tgt, StrVec cls, Xperms xperm) {
+    expand(src, tgt, cls, xperm, [this](auto ...args) {
+        print_rule("auditallowxperm", args...);
+        impl->add_xperm_rule(args..., AVTAB_XPERMS_AUDITALLOW);
+    });
+}
+
+void sepolicy::dontauditxperm(StrVec src, StrVec tgt, StrVec cls, Xperms xperm) {
+    expand(src, tgt, cls, xperm, [this](auto ...args) {
+        print_rule("dontauditxperm", args...);
+        impl->add_xperm_rule(args..., AVTAB_XPERMS_DONTAUDIT);
+    });
 }
