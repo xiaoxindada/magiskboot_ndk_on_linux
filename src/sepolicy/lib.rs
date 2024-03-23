@@ -1,4 +1,5 @@
 #![feature(format_args_nl)]
+#![feature(try_blocks)]
 
 use io::Cursor;
 use std::fmt::Write;
@@ -8,7 +9,8 @@ use std::pin::Pin;
 
 pub use base;
 use base::libc::{O_CLOEXEC, O_RDONLY};
-use base::{error, BufReadExt, FsPath, LoggedResult, Utf8CStr};
+use base::{BufReadExt, FsPath, LoggedResult, Utf8CStr};
+use statement::{parse_statement, print_statement_help};
 
 use crate::ffi::sepolicy;
 
@@ -78,6 +80,7 @@ mod ffi {
         fn type_change(self: Pin<&mut sepolicy>, s: &str, t: &str, c: &str, d: &str);
         fn type_member(self: Pin<&mut sepolicy>, s: &str, t: &str, c: &str, d: &str);
         fn genfscon(self: Pin<&mut sepolicy>, s: &str, t: &str, c: &str);
+        #[allow(dead_code)]
         fn strip_dontaudit(self: Pin<&mut sepolicy>);
     }
 
@@ -88,6 +91,7 @@ mod ffi {
         fn parse_statement(sepol: Pin<&mut sepolicy>, statement: Utf8CStrRef);
         fn magisk_rules(sepol: Pin<&mut sepolicy>);
         fn xperm_to_string(perm: &Xperm) -> String;
+        fn print_statement_help();
     }
 }
 
@@ -95,7 +99,6 @@ trait SepolicyExt {
     fn load_rules(self: Pin<&mut Self>, rules: &[u8]);
     fn load_rule_file(self: Pin<&mut Self>, filename: &Utf8CStr);
     fn load_rules_from_reader<T: BufRead>(self: Pin<&mut Self>, reader: &mut T);
-    fn parse_statement(self: Pin<&mut Self>, statement: &str);
 }
 
 impl SepolicyExt for sepolicy {
@@ -105,13 +108,12 @@ impl SepolicyExt for sepolicy {
     }
 
     fn load_rule_file(self: Pin<&mut sepolicy>, filename: &Utf8CStr) {
-        fn inner(sepol: Pin<&mut sepolicy>, filename: &Utf8CStr) -> LoggedResult<()> {
+        let result: LoggedResult<()> = try {
             let file = FsPath::from(filename).open(O_RDONLY | O_CLOEXEC)?;
             let mut reader = BufReader::new(file);
-            sepol.load_rules_from_reader(&mut reader);
-            Ok(())
-        }
-        inner(self, filename).ok();
+            self.load_rules_from_reader(&mut reader);
+        };
+        result.ok();
     }
 
     fn load_rules_from_reader<T: BufRead>(mut self: Pin<&mut sepolicy>, reader: &mut T) {
@@ -120,15 +122,9 @@ impl SepolicyExt for sepolicy {
             if line.is_empty() {
                 return true;
             }
-            self.as_mut().parse_statement(line);
+            parse_statement(self.as_mut(), line);
             true
         });
-    }
-
-    fn parse_statement(self: Pin<&mut Self>, statement: &str) {
-        if statement::parse_statement(self, statement).is_err() {
-            error!("sepolicy rule syntax error: {statement}");
-        }
     }
 }
 
@@ -138,10 +134,6 @@ fn load_rule_file(sepol: Pin<&mut sepolicy>, filename: &Utf8CStr) {
 
 fn load_rules(sepol: Pin<&mut sepolicy>, rules: &[u8]) {
     sepol.load_rules(rules);
-}
-
-fn parse_statement(sepol: Pin<&mut sepolicy>, statement: &Utf8CStr) {
-    sepol.parse_statement(statement.as_str());
 }
 
 trait SepolicyMagisk {

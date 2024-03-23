@@ -1,11 +1,10 @@
 #include <base.hpp>
 
-#include "flags.h"
 #include "policy.hpp"
 
 using Str = rust::Str;
 
-#if MAGISK_DEBUG
+#if 0
 template<typename Arg>
 std::string as_str(const Arg &arg) {
     if constexpr (std::is_same_v<Arg, const char *> || std::is_same_v<Arg, char *>) {
@@ -56,14 +55,10 @@ static inline void expand(F &&f, T &&...args) {
 
 template<typename ...T>
 static inline void expand(const Str &s, T &&...args) {
-    char buf[64];
-    if (s.length() >= sizeof(buf)) return;
     if (s.empty()) {
         expand(std::forward<T>(args)..., (char *) nullptr);
     } else {
-        memcpy(buf, s.data(), s.length());
-        buf[s.length()] = '\0';
-        expand(std::forward<T>(args)..., buf);
+        expand(std::forward<T>(args)..., std::string(s).data());
     }
 }
 
@@ -143,7 +138,7 @@ void sepolicy::type(Str type, StrVec attrs) {
 
 void sepolicy::attribute(Str name) {
     expand(name, [this](auto ...args) {
-        print_rule("name", args...);
+        print_rule("attribute", args...);
         impl->add_type(args..., TYPE_ATTRIB);
     });
 }
