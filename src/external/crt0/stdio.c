@@ -202,7 +202,7 @@ size_t fread(void *buf, size_t size, size_t count, FILE* stream) {
 
 void setbuf(FILE* fp, char* buf) {}
 
-// vfprintf and vsscanf implementation
+// tfp_vfprintf implementation
 
 struct file_putp {
     FILE *fp;
@@ -216,16 +216,13 @@ static void file_putc(void *data, char ch) {
     }
 }
 
-__attribute__((weak))
-int vfprintf(FILE *stream, const char *format, va_list arg) {
+int tfp_vfprintf(FILE *stream, const char *format, va_list arg) {
     struct file_putp data;
     data.fp = stream;
     data.len = 0;
     tfp_format(&data, &file_putc, format, arg);
     return data.len;
 }
-
-__asm__(".weak vsscanf \n vsscanf = tfp_vsscanf");
 
 // {s,f}printf and sscanf family wrappers
 

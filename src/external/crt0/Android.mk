@@ -12,6 +12,7 @@ LOCAL_compiler_rt := $(shell $(TARGET_CC) -target $(LLVM_TRIPLE)$(TARGET_PLATFOR
 LOCAL_EXPORT_LDFLAGS := -static -nostartfiles -nodefaultlibs \
     $(LOCAL_compiler_rt) -Wl,-wrap,abort_message
 LOCAL_CFLAGS := -Wno-c99-designator -Wno-shift-op-parentheses
+LOCAL_EXPORT_CFLAGS := -DUSE_CRT0
 
 LOCAL_SRC_FILES := \
     crtbegin.c \

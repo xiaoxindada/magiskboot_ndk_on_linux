@@ -6,7 +6,6 @@ An extremely rudimentary libc with its sole purpose being to build the smallest 
 A lot of code in this project is modified from various sources.
 
 - `bionic`: https://android.googlesource.com/platform/bionic.git/+/refs/heads/main/libc/
-- `dlmalloc`: http://gee.cs.oswego.edu/pub/misc/malloc.c
 - `musl`: https://musl.libc.org/
 - `tinystdio`: https://github.com/vladcebo/TinyStdio
 - `linux_syscall_support.h`: https://chromium.googlesource.com/linux-syscall-support
