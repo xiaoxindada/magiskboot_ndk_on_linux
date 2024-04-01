@@ -1,29 +1,17 @@
-// Expose constant strings as macros so that we can use concat!() on these values
+use base::const_format::concatcp;
 
-#[macro_export]
-macro_rules! LOGFILE {
-    () => {
-        "/cache/magisk.log"
-    };
-}
+pub const LOGFILE: &str = "/cache/magisk.log";
 
-#[macro_export]
-macro_rules! INTLROOT {
-    () => {
-        ".magisk"
-    };
-}
+// data paths
+const SECURE_DIR: &str = "/data/adb";
+pub const MODULEROOT: &str = concatcp!(SECURE_DIR, "modules");
 
-#[macro_export]
-macro_rules! LOG_PIPE {
-    () => {
-        concat!($crate::INTLROOT!(), "/device/log")
-    };
-}
-
-#[macro_export]
-macro_rules! MAIN_CONFIG {
-    () => {
-        concat!($crate::INTLROOT!(), "/config")
-    };
-}
+// tmpfs paths
+const INTERNAL_DIR: &str = ".magisk";
+pub const LOG_PIPE: &str = concatcp!(INTERNAL_DIR, "/device/log");
+pub const MAIN_CONFIG: &str = concatcp!(INTERNAL_DIR, "/config");
+pub const PREINITMIRR: &str = concatcp!(INTERNAL_DIR, "/preinit");
+pub const MODULEMNT: &str = concatcp!(INTERNAL_DIR, "/modules");
+pub const WORKERDIR: &str = concatcp!(INTERNAL_DIR, "/worker");
+pub const DEVICEDIR: &str = concatcp!(INTERNAL_DIR, "/device");
+pub const PREINITDEV: &str = concatcp!(DEVICEDIR, "/preinit");
