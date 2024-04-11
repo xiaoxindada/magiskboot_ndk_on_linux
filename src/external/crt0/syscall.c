@@ -1,4 +1,5 @@
 #include <sys/mman.h>
+#include <sys/stat.h>
 
 #define SYS_INLINE
 #include "linux_syscall_support.h"
@@ -49,8 +50,6 @@ EXPORT_SYMBOL(umask);
 EXPORT_SYMBOL(chroot);
 EXPORT_SYMBOL(mount);
 EXPORT_SYMBOL(symlinkat);
-EXPORT_SYMBOL(stat);
-EXPORT_SYMBOL(lstat);
 EXPORT_SYMBOL(statfs);
 EXPORT_SYMBOL(mkdirat);
 EXPORT_SYMBOL(ioctl);
@@ -69,6 +68,8 @@ EXPORT_SYMBOL(getdents64);
 
 SYMBOL_ALIAS(exit, _exit);
 SYMBOL_ALIAS(openat64, openat);
+SYMBOL_ALIAS(stat64, stat);
+SYMBOL_ALIAS(lstat64, lstat);
 
 #if defined(__LP64__)
 
@@ -127,6 +128,14 @@ void *mmap(void *addr, size_t size, int prot, int flags, int fd, off_t offset) {
 }
 
 #endif
+
+int lstat(const char* path, struct stat *st) {
+    return fstatat(AT_FDCWD, path, st, AT_SYMLINK_NOFOLLOW);
+}
+
+int stat(const char* path, struct stat *st) {
+    return fstatat(AT_FDCWD, path, st, 0);
+}
 
 int fchown(int fd, uid_t owner, gid_t group) {
     return fchownat(fd, "", owner, group, AT_EMPTY_PATH);
