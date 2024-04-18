@@ -7,7 +7,11 @@
 // Some missing declarations
 static inline _syscall3(int, faccessat, int, f, const char *, p, int, m)
 _syscall2(int, umount2, const char *, t, int, f)
+#ifdef __NR_renameat
 _syscall4(int, renameat, int, o, const char *, op, int, n, const char *, np)
+#else
+_syscall5(int, renameat2, int, o, const char *, op, int, n, const char *, np, int, flag)
+#endif
 _syscall1(mode_t, umask, mode_t, mask)
 _syscall1(int, chroot, const char *, path)
 _syscall2(int, nanosleep, const struct kernel_timespec *, req, struct kernel_timespec *, rem)
@@ -29,7 +33,6 @@ __asm__(".global " #from " \n " #from " = " #to)
 #define EXPORT_SYMBOL(name) \
 SYMBOL_ALIAS(name, sys_##name)
 
-EXPORT_SYMBOL(_exit);
 EXPORT_SYMBOL(openat);
 EXPORT_SYMBOL(close);
 EXPORT_SYMBOL(read);
@@ -45,7 +48,6 @@ EXPORT_SYMBOL(getpid);
 EXPORT_SYMBOL(chdir);
 EXPORT_SYMBOL(umount2);
 EXPORT_SYMBOL(readlinkat);
-EXPORT_SYMBOL(renameat);
 EXPORT_SYMBOL(umask);
 EXPORT_SYMBOL(chroot);
 EXPORT_SYMBOL(mount);
@@ -65,24 +67,27 @@ EXPORT_SYMBOL(readv);
 EXPORT_SYMBOL(lseek);
 EXPORT_SYMBOL(execve);
 EXPORT_SYMBOL(getdents64);
+EXPORT_SYMBOL(clock_gettime);
 
-SYMBOL_ALIAS(exit, _exit);
+SYMBOL_ALIAS(_exit, sys_exit_group);
 SYMBOL_ALIAS(openat64, openat);
 SYMBOL_ALIAS(stat64, stat);
 SYMBOL_ALIAS(lstat64, lstat);
 
 #if defined(__LP64__)
 
+_syscall3(int, fchown, int, i, uid_t, u, gid_t, g)
+EXPORT_SYMBOL(fchown);
 EXPORT_SYMBOL(fstat);
-EXPORT_SYMBOL(newfstatat);
 EXPORT_SYMBOL(mmap);
-SYMBOL_ALIAS(fstatat, newfstatat);
+SYMBOL_ALIAS(fstatat, sys_newfstatat);
 SYMBOL_ALIAS(lseek64, lseek);
 SYMBOL_ALIAS(ftruncate64, ftruncate);
 SYMBOL_ALIAS(mmap64, mmap);
 
 #else
 
+_syscall3(int, fchown32, int, i, uid_t, u, gid_t, g)
 _syscall2(int, ftruncate64, int, i, off64_t, off)
 _syscall6(void*, mmap2, void*, addr, size_t, size, int, prot, int, flag, int, fd, long, off)
 EXPORT_SYMBOL(ftruncate64);
@@ -91,6 +96,7 @@ EXPORT_SYMBOL(fstatat64);
 EXPORT_SYMBOL(mmap2);
 SYMBOL_ALIAS(fstat, fstat64);
 SYMBOL_ALIAS(fstatat, fstatat64);
+SYMBOL_ALIAS(fchown, sys_fchown32);
 
 // Source: bionic/libc/bionic/legacy_32_bit_support.cpp
 off64_t lseek64(int fd, off64_t off, int whence) {
@@ -104,7 +110,6 @@ off64_t lseek64(int fd, off64_t off, int whence) {
 }
 
 // Source: bionic/libc/bionic/mmap.cpp
-#define PAGE_SIZE 4096
 #define MMAP2_SHIFT 12 // 2**12 == 4096
 
 void *mmap64(void* addr, size_t size, int prot, int flags, int fd, off64_t offset) {
@@ -114,7 +119,7 @@ void *mmap64(void* addr, size_t size, int prot, int flags, int fd, off64_t offse
     }
 
     // Prevent allocations large enough for `end - start` to overflow.
-    size_t rounded = __BIONIC_ALIGN(size, PAGE_SIZE);
+    size_t rounded = __BIONIC_ALIGN(size, getpagesize());
     if (rounded < size || rounded > PTRDIFF_MAX) {
         errno = ENOMEM;
         return MAP_FAILED;
@@ -135,10 +140,6 @@ int lstat(const char* path, struct stat *st) {
 
 int stat(const char* path, struct stat *st) {
     return fstatat(AT_FDCWD, path, st, 0);
-}
-
-int fchown(int fd, uid_t owner, gid_t group) {
-    return fchownat(fd, "", owner, group, AT_EMPTY_PATH);
 }
 
 int lchown(const char* path, uid_t uid, gid_t gid) {
@@ -182,8 +183,20 @@ int symlink(const char *target, const char *linkpath) {
 }
 
 int rename(const char *oldpath, const char *newpath) {
+#ifdef __NR_renameat
     return sys_renameat(AT_FDCWD, oldpath, AT_FDCWD, newpath);
+#else
+    return sys_renameat2(AT_FDCWD, oldpath, AT_FDCWD, newpath, 0);
+#endif
 }
+
+#ifdef __NR_renameat
+EXPORT_SYMBOL(renameat);
+#else
+int renameat(int o, const char * op, int n, const char * np) {
+    return sys_renameat2(o, op, n, np, 0);
+}
+#endif
 
 int access(const char* path, int mode) {
     return faccessat(AT_FDCWD, path, mode, 0);
@@ -215,7 +228,11 @@ void abort() {
     // If SIGABRT is ignored or it's caught and the handler returns,
     // remove the SIGABRT signal handler and raise SIGABRT again.
     struct kernel_sigaction sa = { .sa_handler_ = SIG_DFL, .sa_flags = SA_RESTART };
+#ifdef __NR_sigaction
     sys_sigaction(SIGABRT, &sa, NULL);
+#else
+    sys_rt_sigaction(SIGABRT, &sa, NULL, sizeof(sa.sa_mask));
+#endif
 
     sys_sigprocmask(SIG_SETMASK, &mask, NULL);
     sys_raise(SIGABRT);

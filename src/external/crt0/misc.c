@@ -1,3 +1,4 @@
+#include <sys/auxv.h>
 #include <stdlib.h>
 #include <string.h>
 #include <libgen.h>
@@ -16,104 +17,6 @@ int *__errno(void) {
 long __set_errno_internal(int n) {
     g_errno = n;
     return -1;
-}
-
-// Source: bionic/libc/upstream-openbsd/lib/libc/stdlib/getenv.c
-static char *__findenv(const char *name, int len, int *offset) {
-    int i;
-    const char *np;
-    char **p, *cp;
-
-    if (name == NULL || environ == NULL)
-        return (NULL);
-    for (p = environ + *offset; (cp = *p) != NULL; ++p) {
-        for (np = name, i = len; i && *cp; i--)
-            if (*cp++ != *np++)
-                break;
-        if (i == 0 && *cp++ == '=') {
-            *offset = p - environ;
-            return (cp);
-        }
-    }
-    return (NULL);
-}
-
-char *getenv(const char *name) {
-	int offset = 0;
-	const char *np;
-
-	for (np = name; *np && *np != '='; ++np)
-		;
-	return (__findenv(name, (int)(np - name), &offset));
-}
-
-// Source: bionic/libc/upstream-openbsd/lib/libc/stdlib/setenv.c
-int setenv(const char *name, const char *value, int rewrite) {
-    static char **lastenv;
-
-    char *C, **P;
-    const char *np;
-    int l_value, offset = 0;
-
-    if (!name || !*name) {
-        errno = EINVAL;
-        return (-1);
-    }
-    for (np = name; *np && *np != '='; ++np)
-        ;
-    if (*np) {
-        errno = EINVAL;
-        return (-1);			/* has `=' in name */
-    }
-
-    l_value = strlen(value);
-    if ((C = __findenv(name, (int)(np - name), &offset)) != NULL) {
-        int tmpoff = offset + 1;
-        if (!rewrite)
-            return (0);
-#if 0 /* XXX - existing entry may not be writable */
-        if (strlen(C) >= l_value) {	/* old larger; copy over */
-			while ((*C++ = *value++))
-				;
-			return (0);
-		}
-#endif
-        /* could be set multiple times */
-        while (__findenv(name, (int)(np - name), &tmpoff)) {
-            for (P = &environ[tmpoff];; ++P)
-                if (!(*P = *(P + 1)))
-                    break;
-        }
-    } else {					/* create new slot */
-        size_t cnt = 0;
-
-        if (environ != NULL) {
-            for (P = environ; *P != NULL; P++)
-                ;
-            cnt = P - environ;
-        }
-        size_t new_size;
-        if (__builtin_mul_overflow(cnt + 2, sizeof(char *), &new_size)) {
-            errno = ENOMEM;
-            return (-1);
-        }
-        P = realloc(lastenv, new_size);
-        if (!P)
-            return (-1);
-        if (lastenv != environ && environ != NULL)
-            memcpy(P, environ, cnt * sizeof(char *));
-        lastenv = environ = P;
-        offset = cnt;
-        environ[cnt + 1] = NULL;
-    }
-    if (!(environ[offset] =			/* name + `=' + value */
-                  malloc((int)(np - name) + l_value + 2)))
-        return (-1);
-    for (C = environ[offset]; (*C = *name++) && *C != '='; ++C)
-        ;
-    for (*C++ = '='; (*C++ = *value++); )
-        ;
-    return (0);
 }
 
 // Source: bionic/libc/bionic/libgen.cpp
@@ -180,9 +83,46 @@ void __wrap_abort_message(const char* format, ...) {
     abort();
 }
 
-// Don't care about C++ global destructors
-int __cxa_atexit(void (*func) (void *), void * arg, void * dso_handle) {
+typedef struct at_exit_func {
+    void *arg;
+    void (*func)(void*);
+} at_exit_func;
+
+static int at_exit_cap = 0;
+static int at_exit_sz = 0;
+static at_exit_func *at_exit_list = NULL;
+
+int __cxa_atexit(void (*func)(void *), void *arg, void *dso_handle) {
+    if (at_exit_sz == at_exit_cap) {
+        at_exit_cap = at_exit_cap ? at_exit_sz * 2 : 16;
+        at_exit_list = realloc(at_exit_list, at_exit_cap * sizeof(at_exit_func));
+    }
+    at_exit_list[at_exit_sz].func = func;
+    at_exit_list[at_exit_sz].arg = arg;
+    ++at_exit_sz;
     return 0;
+}
+
+typedef void fini_func_t(void);
+
+extern fini_func_t *__fini_array_start[];
+extern fini_func_t *__fini_array_end[];
+
+void exit(int status) {
+    // Call registered at_exit functions in reverse
+    for (int i = at_exit_sz - 1; i >= 0; --i) {
+        at_exit_list[i].func(at_exit_list[i].arg);
+    }
+
+    fini_func_t** array = __fini_array_start;
+    size_t count = __fini_array_end - __fini_array_start;
+    // Call fini functions in reverse order
+    while (count-- > 0) {
+        fini_func_t* function = array[count];
+        (*function)();
+    }
+
+    _exit(status);
 }
 
 // Emulate pthread functions
@@ -248,6 +188,14 @@ int pthread_setspecific(pthread_key_t key, const void *value) {
     }
     key_list[key].data = (void *) value;
     return 0;
+}
+
+int getpagesize() {
+    static int sz = 0;
+    if (sz == 0) {
+        sz = getauxval(AT_PAGESZ);
+    }
+    return sz;
 }
 
 // Workaround LTO bug: https://github.com/llvm/llvm-project/issues/61101
