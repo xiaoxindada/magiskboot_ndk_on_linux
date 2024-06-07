@@ -5,7 +5,7 @@ LOCAL_MODULE:= libsystemproperties
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/include
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_C_INCLUDES)
 LOCAL_STATIC_LIBRARIES := libcxx
-LOCAL_CFLAGS := -std=c++17
+LOCAL_CFLAGS := -std=c++17 -Wno-unused-function
 LOCAL_SRC_FILES := \
     context_node.cpp \
     contexts_serialized.cpp \

@@ -29,6 +29,7 @@
 #define _REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_
 #include <api/_system_properties.h>
 
+#include <async_safe/CHECK.h>
 #include <system_properties/prop_area.h>
 #include <system_properties/system_properties.h>
 
@@ -45,18 +46,13 @@ prop_area* __system_property_area__ = nullptr;
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 int __system_properties_init() {
-  return system_properties.Init(PROP_FILENAME) ? 0 : -1;
-}
-
-__BIONIC_WEAK_FOR_NATIVE_BRIDGE
-int __system_property_set_filename(const char*) {
-  return -1;
+  return system_properties.Init(PROP_DIRNAME) ? 0 : -1;
 }
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 int __system_property_area_init() {
-  bool fsetxattr_failed = false;
-  return system_properties.AreaInit(PROP_FILENAME, &fsetxattr_failed) && !fsetxattr_failed ? 0 : -1;
+  bool fsetxattr_fail = false;
+  return system_properties.AreaInit(PROP_DIRNAME, &fsetxattr_fail) && !fsetxattr_fail ? 0 : -1;
 }
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
@@ -93,7 +89,7 @@ int __system_property_update(prop_info* pi, const char* value, unsigned int len)
 }
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
-int __system_property_delete(const char *name, bool prune) {
+int __system_property_delete(const char* name, bool prune) {
   return system_properties.Delete(name, prune);
 }
 
@@ -138,4 +134,10 @@ const prop_info* __system_property_find_nth(unsigned n) {
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 int __system_property_foreach(void (*propfn)(const prop_info* pi, void* cookie), void* cookie) {
   return system_properties.Foreach(propfn, cookie);
+}
+
+__BIONIC_WEAK_FOR_NATIVE_BRIDGE
+int __system_properties_zygote_reload(void) {
+  CHECK(getpid() == gettid());
+  return system_properties.Reload(false) ? 0 : -1;
 }
