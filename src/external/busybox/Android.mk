@@ -428,7 +428,6 @@ networking/pscan.c \
 networking/route.c \
 networking/slattach.c \
 networking/ssl_client.c \
-networking/tc.c \
 networking/tcpudp.c \
 networking/tcpudp_perhost.c \
 networking/telnet.c \

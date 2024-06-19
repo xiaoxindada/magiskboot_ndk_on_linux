@@ -2,7 +2,7 @@
  * Automatically generated C config: don't edit
  * Busybox version: 1.36.1
  */
-#define AUTOCONF_TIMESTAMP "2023-09-02 05:30:11 PDT"
+#define AUTOCONF_TIMESTAMP "2024-06-18 12:48:35 PDT"
 
 #define CONFIG_HAVE_DOT_CONFIG 1
 #define ENABLE_HAVE_DOT_CONFIG 1
@@ -6236,22 +6236,14 @@
 # define IF_SSL_CLIENT(...) __VA_ARGS__
 #endif
 #define IF_NOT_SSL_CLIENT(...)
-#define CONFIG_TC 1
-#define ENABLE_TC 1
-#ifdef MAKE_SUID
-# define IF_TC(...) __VA_ARGS__ "CONFIG_TC"
-#else
-# define IF_TC(...) __VA_ARGS__
-#endif
-#define IF_NOT_TC(...)
-#define CONFIG_FEATURE_TC_INGRESS 1
-#define ENABLE_FEATURE_TC_INGRESS 1
-#ifdef MAKE_SUID
-# define IF_FEATURE_TC_INGRESS(...) __VA_ARGS__ "CONFIG_FEATURE_TC_INGRESS"
-#else
-# define IF_FEATURE_TC_INGRESS(...) __VA_ARGS__
-#endif
-#define IF_NOT_FEATURE_TC_INGRESS(...)
+#undef CONFIG_TC
+#define ENABLE_TC 0
+#define IF_TC(...)
+#define IF_NOT_TC(...) __VA_ARGS__
+#undef CONFIG_FEATURE_TC_INGRESS
+#define ENABLE_FEATURE_TC_INGRESS 0
+#define IF_FEATURE_TC_INGRESS(...)
+#define IF_NOT_FEATURE_TC_INGRESS(...) __VA_ARGS__
 #define CONFIG_TCPSVD 1
 #define ENABLE_TCPSVD 1
 #ifdef MAKE_SUID
