@@ -15,11 +15,13 @@
 #include "syscall.hpp"
 
 namespace {
+const uintptr_t kPageSize = getpagesize();
 
-inline auto PageStart(uintptr_t addr) { return reinterpret_cast<char *>(((addr)&PAGE_MASK)); }
+inline auto PageStart(uintptr_t addr) {
+    return reinterpret_cast<char *>(addr / kPageSize * kPageSize); }
 
 inline auto PageEnd(uintptr_t addr) {
-    return reinterpret_cast<char *>(reinterpret_cast<uintptr_t>(PageStart(addr)) + PAGE_SIZE);
+    return reinterpret_cast<char *>(reinterpret_cast<uintptr_t>(PageStart(addr)) + kPageSize);
 }
 
 struct RegisterInfo {
@@ -113,7 +115,6 @@ public:
     }
 
     bool DoHook(uintptr_t addr, uintptr_t callback, uintptr_t *backup) {
-        using PAGE = std::array<char, PAGE_SIZE>;
         LOGV("Hooking %p", reinterpret_cast<void *>(addr));
         auto iter = lower_bound(addr);
         if (iter == end()) return false;
@@ -139,9 +140,8 @@ public:
             }
             for (uintptr_t src = reinterpret_cast<uintptr_t>(backup_addr), dest = info.start,
                            end = info.start + len;
-                 dest < end; src += PAGE_SIZE, dest += PAGE_SIZE) {
-                static_assert(sizeof(PAGE) == PAGE_SIZE);
-                *reinterpret_cast<PAGE *>(dest) = *reinterpret_cast<PAGE *>(src);
+                 dest < end; src += kPageSize, dest += kPageSize) {
+                memcpy(reinterpret_cast<void *>(dest), reinterpret_cast<void *>(src), kPageSize);
             }
             info.backup = reinterpret_cast<uintptr_t>(backup_addr);
         }
@@ -242,11 +242,12 @@ HookInfos hook_info;
 
 namespace lsplt {
 inline namespace v2 {
-[[maybe_unused]] std::vector<MapInfo> MapInfo::Scan() {
+[[maybe_unused]] std::vector<MapInfo> MapInfo::Scan(std::string_view pid) {
     constexpr static auto kPermLength = 5;
     constexpr static auto kMapEntry = 7;
     std::vector<MapInfo> info;
-    auto maps = std::unique_ptr<FILE, decltype(&fclose)>{fopen("/proc/self/maps", "r"), &fclose};
+    auto path = "/proc/" + std::string{pid} + "/maps";
+    auto maps = std::unique_ptr<FILE, decltype(&fclose)>{fopen(path.c_str(), "r"), &fclose};
     if (maps) {
         char *line = nullptr;
         size_t len = 0;
