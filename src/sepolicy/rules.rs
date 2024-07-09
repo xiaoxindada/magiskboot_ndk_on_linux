@@ -52,7 +52,8 @@ impl SepolicyMagisk for sepolicy {
         set_log_level_state(LogLevel::Warn, false);
         rules! {
             use self;
-            allow(all, ["kernel"], ["security"], ["load_policy"]);
+            // Prevent anything to change sepolicy except ourselves
+            deny(all, ["kernel"], ["security"], ["load_policy"]);
             type_(proc, ["domain"]);
             typeattribute([proc], ["mlstrustedsubject", "netdomain", "appdomain"]);
             type_(file, ["file_type"]);
@@ -100,8 +101,9 @@ impl SepolicyMagisk for sepolicy {
                 "system_app", "priv_app", "untrusted_app", "untrusted_app_all"],
                 [proc], ["unix_stream_socket"], ["connectto", "getopt"]);
 
-            // Let everyone access tmpfs files (for SAR sbin overlay)
-            allow(["domain"], ["tmpfs"], ["file"], all);
+            // Let selected domains access tmpfs files
+            // For tmpfs overlay on 2SI, Zygisk on lower Android versions and AVD scripts
+            allow(["init", "zygote", "shell"], ["tmpfs"], ["file"], all);
 
             // Allow magiskinit daemon to handle mock selinuxfs
             allow(["kernel"], ["tmpfs"], ["fifo_file"], ["write"]);
