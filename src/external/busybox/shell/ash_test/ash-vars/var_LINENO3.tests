@@ -1,2 +1,0 @@
-$THIS_SH -c 'echo "LINENO starts from $LINENO in -c"
-echo "and increments on next line: $LINENO"'
