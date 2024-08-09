@@ -287,8 +287,8 @@ impl AsRef<[u8]> for Bytes {
     }
 }
 
-const VERITY_PEM: &[u8] = include_bytes!("../../../tools/keys/verity.x509.pem");
-const VERITY_PK8: &[u8] = include_bytes!("../../../tools/keys/verity.pk8");
+const VERITY_PEM: &[u8] = include_bytes!("../../tools/keys/verity.x509.pem");
+const VERITY_PK8: &[u8] = include_bytes!("../../tools/keys/verity.pk8");
 
 pub fn sign_boot_image(
     payload: &[u8],

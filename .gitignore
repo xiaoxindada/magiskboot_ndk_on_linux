@@ -1,3 +1,6 @@
+/.vscode/**
+/src/**/*-rs.cpp
+/src/**/*-rs.hpp
 /obj
 /libs
 /out
@@ -5,5 +8,4 @@
 /ndk
 *.zip
 *.gz
-/src/target/
-/generated
+*.xz

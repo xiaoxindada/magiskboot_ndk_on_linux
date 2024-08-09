@@ -4,6 +4,7 @@ import errno
 import lzma
 import multiprocessing
 import os
+from pathlib import Path
 import platform
 import sys
 import os.path as op
@@ -113,32 +114,44 @@ def cmd_out(cmd, env=None):
 
 
 LOCALDIR = op.realpath(".")
-is_windows = os.name == "nt"
-EXE_EXT = ".exe" if is_windows else ""
 cpu_count = multiprocessing.cpu_count()
 os_name = platform.system().lower()
-archs = ["armeabi-v7a", "x86", "arm64-v8a", "x86_64"]
-triples = [
-    "armv7a-linux-androideabi",
-    "i686-linux-android",
-    "aarch64-linux-android",
-    "x86_64-linux-android",
-]
-default_targets = ["magiskboot", "busybox"]
-support_targets = default_targets
-rust_targets = ["magiskboot"]
-
-ndk_root = op.join(LOCALDIR, "ndk")
-ndk_build = op.join(ndk_root, "ndk-build")
-rust_bin = op.join(ndk_root, "toolchains", "rust", "bin")
-cargo = op.join(rust_bin, "cargo")
-local_cargo_root = op.join(LOCALDIR, ".cargo")
-cxxbridge = op.join(local_cargo_root, "bin", "cxxbridge")
-native_gen_path = op.realpath(op.join(LOCALDIR, "generated"))
 release = True
-config = {}
-load_config()
 
+# Common constants
+support_abis = {
+    "armeabi-v7a": "thumbv7neon-linux-androideabi",
+    "x86": "i686-linux-android",
+    "arm64-v8a": "aarch64-linux-android",
+    "x86_64": "x86_64-linux-android",
+    "riscv64": "riscv64-linux-android",
+}
+
+# Environment checks and detection
+is_windows = os.name == "nt"
+EXE_EXT = ".exe" if is_windows else ""
+
+default_targets = {"magiskboot"}
+rust_targets = {"magiskboot"}
+support_targets = default_targets
+
+# Common paths
+ndk_root = Path(LOCALDIR, "ndk")
+native_out = Path(LOCALDIR, "out")
+ndk_build = ndk_root / "ndk-build"
+rust_bin = ndk_root / "toolchains" / "rust" / "bin"
+llvm_bin = ndk_root / "toolchains" / "llvm" / "prebuilt" / f"{os_name}-x86_64" / "bin"
+cargo = rust_bin / "cargo"
+native_gen_path = native_out / "generated"
+rust_out = native_out / "rust"
+
+# Global vars
+config = {}
+archs = {"armeabi-v7a", "x86", "arm64-v8a", "x86_64"}
+triples = map(support_abis.get, archs)
+build_abis = dict(zip(archs, triples))
+
+load_config()
 
 def cp_output(source, target):
     system(f"cp -af {source} {target}")
@@ -156,20 +169,6 @@ def binary_dump(src, var_name, compressor=xz):
         out_str += f"0x{c:02X},"
     out_str += "\n};\n"
     return out_str
-
-
-def dump_bin_header():
-    for arch in archs:
-        mkdir_p(op.join(native_gen_path, arch))
-        for tgt in support_targets + ["libinit-ld.so"]:
-            source = op.join(LOCALDIR, "libs", arch, tgt)
-            target = op.join(native_gen_path, arch, tgt)
-            mv(source, target)
-    for arch in archs:
-        preload = op.join(native_gen_path, arch, "libinit-ld.so")
-        with open(preload, "rb") as src:
-            text = binary_dump(src, "init_ld_xz")
-        write_if_diff(op.join(native_gen_path, f"{arch}_binaries.h"), text)
 
 
 def write_if_diff(file_name, text):
@@ -203,6 +202,23 @@ def dump_flag_header():
     write_if_diff(op.join(native_gen_path, "flags.h"), flag_txt)
 
 
+
+def build_native():
+    targets = default_targets
+    print("* Building: " + " ".join(targets))
+
+    if sccache := shutil.which("sccache"):
+        os.environ["RUSTC_WRAPPER"] = sccache
+        os.environ["NDK_CCACHE"] = sccache
+        os.environ["CARGO_INCREMENTAL"] = "0"
+    if ccache := shutil.which("ccache"):
+        os.environ["NDK_CCACHE"] = ccache
+
+    build_rust_src(targets)
+    build_cpp_src(targets)
+
+
+
 def run_cargo(cmds, triple="aarch64-linux-android"):
     llvm_bin = op.join(
         ndk_root, "toolchains", "llvm", "prebuilt", f"{os_name}-x86_64", "bin"
@@ -214,6 +230,83 @@ def run_cargo(cmds, triple="aarch64-linux-android"):
     env["TARGET_CC"] = op.join(llvm_bin, "clang" + EXE_EXT)
     env["TARGET_CFLAGS"] = f"--target={triple}23"
     return execv([cargo, *cmds], env)
+
+def build_rust_src(targets: set):
+    targets = targets.copy()
+    if "resetprop" in targets:
+        targets.add("magisk")
+    targets = targets & rust_targets
+    if not targets:
+        return
+
+    os.chdir(Path(LOCALDIR, "src"))
+
+    # Start building the build commands
+    cmds = ["build", "-p", ""]
+    if release:
+        cmds.append("-r")
+        profile = "release"
+    else:
+        profile = "debug"
+
+    for triple in build_abis.values():
+        cmds.append("--target")
+        cmds.append(triple)
+
+    for tgt in targets:
+        cmds[2] = tgt
+        proc = run_cargo(cmds)
+        if proc.returncode != 0:
+            error("Build binary failed!")
+
+    os.chdir(Path(LOCALDIR))
+
+    for arch, triple in build_abis.items():
+        arch_out = native_out / arch
+        arch_out.mkdir(mode=0o755, exist_ok=True)
+        for tgt in targets:
+            source = rust_out / triple / profile / f"lib{tgt}.a"
+            target = arch_out / f"lib{tgt}-rs.a"
+            mv(source, target)
+
+
+def build_cpp_src(targets: set):
+    dump_flag_header()
+
+    cmds = []
+    clean = False
+
+    if "magisk" in targets:
+        cmds.append("B_MAGISK=1")
+        clean = True
+
+    if "magiskpolicy" in targets:
+        cmds.append("B_POLICY=1")
+        clean = True
+
+    if "magiskinit" in targets:
+        cmds.append("B_PRELOAD=1")
+
+    if "resetprop" in targets:
+        cmds.append("B_PROP=1")
+
+    if cmds:
+        run_ndk_build(cmds)
+
+    cmds.clear()
+
+    if "magiskinit" in targets:
+        cmds.append("B_INIT=1")
+
+    if "magiskboot" in targets:
+        cmds.append("B_BOOT=1")
+
+    if cmds:
+        cmds.append("B_CRT0=1")
+        run_ndk_build(cmds)
+
+    if clean:
+        pass
 
 
 def run_cargo_build():
@@ -266,75 +359,81 @@ def setup_ndk():
         mv(f"ondk-{config['ondkVersion']}", ndk_root)
 
 
-def run_ndk_build(flags):
-    os.chdir(LOCALDIR)
-    NDK_APPLICATION_MK = op.join(LOCALDIR, "src", "Application.mk")
-    flags = (
-        f"NDK_PROJECT_PATH={LOCALDIR} NDK_APPLICATION_MK={NDK_APPLICATION_MK} {flags}"
-    )
-    proc = system(f"{ndk_build} {flags} -j{cpu_count}")
+def run_ndk_build(cmds: list):
+    os.chdir(Path(LOCALDIR))
+    cmds.append("NDK_PROJECT_PATH=.")
+    cmds.append("NDK_APPLICATION_MK=src/Application.mk")
+    cmds.append(f"APP_ABI={' '.join(build_abis.keys())}")
+    cmds.append(f"-j{cpu_count}")
+    if not release:
+        cmds.append("MAGISK_DEBUG=1")
+    proc = execv([ndk_build, *cmds])
     if proc.returncode != 0:
         error("Build binary failed!")
+    move_gen_bins()
 
 
-def build_binary():
-    libs = op.join(LOCALDIR, "libs")
-    out = op.join(LOCALDIR, "out")
+def move_gen_bins():
+    for arch in build_abis.keys():
+        arch_dir = Path(LOCALDIR, "libs", arch)
+        out_dir = Path(LOCALDIR, "out", arch)
+        for source in arch_dir.iterdir():
+            target = out_dir / source.name
+            mv(source, target)
+            rm(Path(out_dir, f"lib{source.name}-rs.a"))
 
+    rm_rf(rust_out)
     rm_rf(native_gen_path)
-    rm_rf(out)
-    mkdir_p(native_gen_path)
-    mkdir_p(out)
+    
+    with open(Path(native_out, "magisk_version.txt"), "w") as f:
+        f.write(f"magisk.versionCode={config['versionCode']}\n")
+    
 
-    os.chdir(op.join(LOCALDIR, "src"))
-    run_cargo_build()
-    os.chdir(LOCALDIR)
-
+def build_cpp_src(targets: set):
     dump_flag_header()
 
-    flag = ""
+    cmds = []
+    clean = False
 
-    if "magisk" in default_targets:
-        flag += " B_MAGISK=1"
+    if "magisk" in targets:
+        cmds.append("B_MAGISK=1")
+        clean = True
 
-    if "magiskpolicy" in default_targets:
-        flag += " B_POLICY=1"
+    if "magiskpolicy" in targets:
+        cmds.append("B_POLICY=1")
+        clean = True
 
-    if "resetprop" in default_targets:
-        flag += " B_PROP=1"
+    if "magiskinit" in targets:
+        cmds.append("B_PRELOAD=1")
 
-    if "magiskinit" in default_targets:
-        flag += " B_PRELOAD=1"
+    if "resetprop" in targets:
+        cmds.append("B_PROP=1")
 
-    if flag:
-        run_ndk_build(flag)
-        cp_output(f"{libs}/*", out)
+    if cmds:
+        run_ndk_build(cmds)
 
-    flag = ""
+    cmds.clear()
 
-    if "magiskinit" in default_targets:
-        # magiskinit embeds preload.so
-        dump_bin_header(args)
-        flag += " B_INIT=1"
+    if "magiskinit" in targets:
+        cmds.append("B_INIT=1")
 
-    if "magiskboot" in default_targets:
-        flag += " B_BOOT=1"
+    if "magiskboot" in targets:
+        cmds.append("B_BOOT=1")
 
-    if flag:
-        flag += " B_CRT0=1"
-        run_ndk_build(flag)
-        cp_output(f"{libs}/*", out)
+    if cmds:
+        cmds.append("B_CRT0=1")
+        run_ndk_build(cmds)
 
-    flag = ""
+    if clean:
+        pass
 
-    if "busybox" in default_targets:
-        flag += " B_BB=1"
 
-    if flag:
-        run_ndk_build(flag)
-        cp_output(f"{libs}/*", out)
-
-    system(f"echo magisk.versionCode={config['versionCode']} > out/magisk_version.txt")
+def run_cargo(cmds):
+    env = os.environ.copy()
+    env["PATH"] = f'{rust_bin}{os.pathsep}{env["PATH"]}'
+    env["CARGO_BUILD_RUSTC"] = str(rust_bin / f"rustc{EXE_EXT}")
+    env["CARGO_BUILD_RUSTFLAGS"] = f"-Z threads={cpu_count}"
+    return execv([cargo, *cmds], env)
 
 
 def update_code():
@@ -359,9 +458,8 @@ def update_code():
     system("rm -rf Magisk/native/src/external/busybox/include/.gitignore")
 
     # Fix path defined
-    system("sed -i 's|out/generated|generated|g' Magisk/native/src/base/Android.mk")
     system(
-        "sed -i 's|\.\./out/\$(TARGET_ARCH_ABI)|\.\./generated/\$(TARGET_ARCH_ABI)|g' Magisk/native/src/Android-rs.mk"
+        r"sed -i 's|\.\./\.\./\.\./tools/keys/|\.\./\.\./tools/keys/|g' Magisk/native/src/boot/sign.rs"
     )
 
     mv("Magisk/native/src", "src")
@@ -379,13 +477,13 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         parser.print_help()
 
-    if platform.system() == "Windwos":
+    if is_windows:
         error("Windws is not support")
 
     if args.build_binary:
         if not op.exists(ndk_root):
             setup_ndk()
-        build_binary()
+        build_native()
 
     if args.update_code:
         update_code()
