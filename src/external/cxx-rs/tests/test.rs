@@ -4,8 +4,9 @@
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::float_cmp,
-    clippy::needless_pass_by_value,
     clippy::needless_pass_by_ref_mut,
+    clippy::needless_pass_by_value,
+    clippy::ptr_cast_constness,
     clippy::unit_cmp,
     clippy::unseparated_literal_suffix
 )]
@@ -17,7 +18,7 @@ use std::cell::Cell;
 use std::ffi::CStr;
 
 thread_local! {
-    static CORRECT: Cell<bool> = Cell::new(false);
+    static CORRECT: Cell<bool> = const { Cell::new(false) };
 }
 
 #[no_mangle]

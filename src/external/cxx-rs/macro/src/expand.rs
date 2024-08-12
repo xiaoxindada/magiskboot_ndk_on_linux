@@ -147,6 +147,7 @@ fn expand(ffi: Module, doc: Doc, attrs: OtherAttrs, apis: &[Api], types: &Types)
             clippy::items_after_statements,
             clippy::no_effect_underscore_binding,
             clippy::ptr_as_ptr,
+            clippy::ref_as_ptr,
             clippy::upper_case_acronyms,
             clippy::use_self,
         )]
@@ -898,6 +899,7 @@ fn expand_rust_type_layout(ety: &ExternType, types: &Types) -> TokenStream {
     quote_spanned! {ident.span()=>
         {
             #[doc(hidden)]
+            #[allow(clippy::needless_maybe_sized)]
             fn __AssertSized<T: ?#sized + #sized>() -> ::cxx::core::alloc::Layout {
                 ::cxx::core::alloc::Layout::new::<T>()
             }

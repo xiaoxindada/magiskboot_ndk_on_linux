@@ -85,10 +85,10 @@ fn write_data_structures<'a>(out: &mut OutFile<'a>, apis: &'a [Api]) {
         match api {
             Api::Struct(strct) if !structs_written.contains(&strct.name.rust) => {
                 for next in &mut toposorted_structs {
-                    if !out.types.cxx.contains(&strct.name.rust) {
+                    if !out.types.cxx.contains(&next.name.rust) {
                         out.next_section();
                         let methods = methods_for_type
-                            .get(&strct.name.rust)
+                            .get(&next.name.rust)
                             .map(Vec::as_slice)
                             .unwrap_or_default();
                         write_struct(out, next, methods);
@@ -1113,10 +1113,10 @@ fn write_rust_function_shim_impl(
     }
     write!(out, ")");
     if !indirect_return {
-        if let Some(ret) = &sig.ret {
-            if let Type::RustBox(_) | Type::UniquePtr(_) | Type::Str(_) | Type::SliceRef(_) = ret {
-                write!(out, ")");
-            }
+        if let Some(Type::RustBox(_) | Type::UniquePtr(_) | Type::Str(_) | Type::SliceRef(_)) =
+            &sig.ret
+        {
+            write!(out, ")");
         }
     }
     writeln!(out, ";");

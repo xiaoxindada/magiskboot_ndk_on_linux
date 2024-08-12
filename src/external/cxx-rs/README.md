@@ -24,7 +24,7 @@ cxx = "1.0"
 cxx-build = "1.0"
 ```
 
-*Compiler support: requires rustc 1.60+ and c++11 or newer*<br>
+*Compiler support: requires rustc 1.67+ and c++11 or newer*<br>
 *[Release notes](https://github.com/dtolnay/cxx/releases)*
 
 <br>
@@ -244,7 +244,7 @@ cxx-build = "1.0"
 fn main() {
     cxx_build::bridge("src/main.rs")  // returns a cc::Build
         .file("src/demo.cc")
-        .flag_if_supported("-std=c++11")
+        .std("c++11")
         .compile("cxxbridge-demo");
 
     println!("cargo:rerun-if-changed=src/main.rs");

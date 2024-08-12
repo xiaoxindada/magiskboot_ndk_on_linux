@@ -1,6 +1,6 @@
 [package]
 name = "cxx-gen"
-version = "0.7.115"
+version = "0.7.124"
 authors = ["Adrian Taylor <adetaylor@chromium.org>"]
 categories = ["development-tools::ffi"]
 description = "C++ code generator for integrating `cxx` crate into higher level tools."
@@ -10,7 +10,7 @@ exclude = ["build.rs"]
 keywords = ["ffi"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/dtolnay/cxx"
-rust-version = "1.60"
+rust-version = "1.67"
 
 [dependencies]
 codespan-reporting = "0.11.1"

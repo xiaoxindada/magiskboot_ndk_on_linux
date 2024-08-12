@@ -1,10 +1,13 @@
-[repositories]
+[cells]
 root = .
 prelude = tools/buck/prelude
 toolchains = tools/buck/toolchains
 none = none
 
-[repository_aliases]
+[external_cells]
+prelude = bundled
+
+[cell_aliases]
 config = prelude
 buck = none
 fbcode = none

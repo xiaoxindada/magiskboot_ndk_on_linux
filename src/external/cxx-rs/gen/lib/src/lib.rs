@@ -7,9 +7,10 @@
 //! [dtolnay/cxx#235]: https://github.com/dtolnay/cxx/issues/235
 //! [https://github.com/google/autocxx]: https://github.com/google/autocxx
 
-#![doc(html_root_url = "https://docs.rs/cxx-gen/0.7.115")]
+#![doc(html_root_url = "https://docs.rs/cxx-gen/0.7.124")]
 #![deny(missing_docs)]
 #![allow(dead_code)]
+#![cfg_attr(not(check_cfg), allow(unexpected_cfgs))]
 #![allow(
     clippy::cast_sign_loss,
     clippy::default_trait_access,
@@ -38,9 +39,7 @@
     clippy::too_many_arguments,
     clippy::too_many_lines,
     clippy::toplevel_ref_arg,
-    clippy::uninlined_format_args,
-    // clippy bug: https://github.com/rust-lang/rust-clippy/issues/6983
-    clippy::wrong_self_convention
+    clippy::uninlined_format_args
 )]
 
 mod error;
@@ -49,7 +48,7 @@ mod syntax;
 
 pub use crate::error::Error;
 pub use crate::gen::include::{Include, HEADER};
-pub use crate::gen::{GeneratedCode, Opt};
+pub use crate::gen::{CfgEvaluator, CfgResult, GeneratedCode, Opt};
 pub use crate::syntax::IncludeKind;
 use proc_macro2::TokenStream;
 use std::path::Path;

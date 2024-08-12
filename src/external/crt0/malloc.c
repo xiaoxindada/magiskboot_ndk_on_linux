@@ -84,6 +84,16 @@ void *memalign(size_t alignment, size_t size) {
     return p;
 }
 
+int posix_memalign(void **memptr, size_t alignment, size_t size) {
+    void *ptr = memalign(alignment, size);
+    if (ptr) {
+        *memptr = ptr;
+        return 0;
+    } else {
+        return ENOMEM;
+    }
+}
+
 void *malloc(size_t size) {
     return memalign(MIN_ALIGNMENT, size);
 }

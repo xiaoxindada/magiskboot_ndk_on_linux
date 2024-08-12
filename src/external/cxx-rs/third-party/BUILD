@@ -9,21 +9,3 @@ crates_vendor(
     tags = ["manual"],
     vendor_path = "bazel",
 )
-
-[
-    alias(
-        name = name,
-        actual = "//third-party/bazel:{}".format(name),
-        visibility = ["//visibility:public"],
-    )
-    for name in [
-        "cc",
-        "clap",
-        "codespan-reporting",
-        "once_cell",
-        "proc-macro2",
-        "quote",
-        "scratch",
-        "syn",
-    ]
-]

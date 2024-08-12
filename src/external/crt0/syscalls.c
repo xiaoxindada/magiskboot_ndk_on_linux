@@ -90,6 +90,7 @@ SYMBOL_ALIAS(mmap64, mmap);
 _syscall3(int, fchown32, int, i, uid_t, u, gid_t, g)
 _syscall2(int, ftruncate64, int, i, off64_t, off)
 _syscall6(void*, mmap2, void*, addr, size_t, size, int, prot, int, flag, int, fd, long, off)
+_syscall3(int, fcntl64, int, fd, int, op, long, arg)
 EXPORT_SYMBOL(ftruncate64);
 EXPORT_SYMBOL(fstat64);
 EXPORT_SYMBOL(fstatat64);
@@ -292,4 +293,25 @@ int open(const char *pathname, int flags, ...) {
 #endif
 
     return sys_openat(AT_FDCWD, pathname, flags, mode);
+}
+
+// Source: bionic/libc/bionic/fcntl.cpp
+int fcntl(int fd, int cmd, ...) {
+    va_list args;
+    va_start(args, cmd);
+    // This is a bit sketchy for LP64, especially because arg can be an int,
+    // but all of our supported 64-bit ABIs pass the argument in a register.
+    long arg = va_arg(args, long);
+    va_end(args);
+
+    if (cmd == F_SETFD && (arg & ~FD_CLOEXEC) != 0) {
+        return -1;
+    }
+
+#if defined(__LP64__)
+    return sys_fcntl(fd, cmd, arg);
+#else
+    // For LP32 we use the fcntl64 system call to signal that we're using struct flock64.
+    return sys_fcntl64(fd, cmd, arg);
+#endif
 }

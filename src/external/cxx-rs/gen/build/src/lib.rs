@@ -16,7 +16,7 @@
 //! fn main() {
 //!     cxx_build::bridge("src/main.rs")
 //!         .file("src/demo.cc")
-//!         .flag_if_supported("-std=c++11")
+//!         .std("c++11")
 //!         .compile("cxxbridge-demo");
 //!
 //!     println!("cargo:rerun-if-changed=src/main.rs");
@@ -45,7 +45,8 @@
 //! $ cxxbridge src/main.rs > path/to/mybridge.cc
 //! ```
 
-#![doc(html_root_url = "https://docs.rs/cxx-build/1.0.115")]
+#![doc(html_root_url = "https://docs.rs/cxx-build/1.0.124")]
+#![cfg_attr(not(check_cfg), allow(unexpected_cfgs))]
 #![allow(
     clippy::cast_sign_loss,
     clippy::default_trait_access,
@@ -76,10 +77,9 @@
     clippy::too_many_arguments,
     clippy::too_many_lines,
     clippy::toplevel_ref_arg,
+    clippy::unconditional_recursion, // clippy bug: https://github.com/rust-lang/rust-clippy/issues/12133
     clippy::uninlined_format_args,
     clippy::upper_case_acronyms,
-    // clippy bug: https://github.com/rust-lang/rust-clippy/issues/6983
-    clippy::wrong_self_convention
 )]
 
 mod cargo;
@@ -130,7 +130,7 @@ pub fn bridge(rust_source_file: impl AsRef<Path>) -> Build {
 /// let source_files = vec!["src/main.rs", "src/path/to/other.rs"];
 /// cxx_build::bridges(source_files)
 ///     .file("src/demo.cc")
-///     .flag_if_supported("-std=c++11")
+///     .std("c++11")
 ///     .compile("cxxbridge-demo");
 /// ```
 #[must_use]
@@ -434,9 +434,8 @@ fn best_effort_copy_headers(src: &Path, dst: &Path, max_depth: usize) {
     use std::fs;
 
     let mut dst_created = false;
-    let mut entries = match fs::read_dir(src) {
-        Ok(entries) => entries,
-        Err(_) => return,
+    let Ok(mut entries) = fs::read_dir(src) else {
+        return;
     };
 
     while let Some(Ok(entry)) = entries.next() {
