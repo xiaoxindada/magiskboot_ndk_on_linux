@@ -29,21 +29,23 @@ bool avd_hack = false;
 static void parse_device(devinfo *dev, const char *uevent) {
     dev->partname[0] = '\0';
     dev->devpath[0] = '\0';
+    dev->dmname[0] = '\0';
+    dev->devname[0] = '\0';
     parse_prop_file(uevent, [=](string_view key, string_view value) -> bool {
         if (key == "MAJOR")
             dev->major = parse_int(value.data());
         else if (key == "MINOR")
             dev->minor = parse_int(value.data());
         else if (key == "DEVNAME")
-            strcpy(dev->devname, value.data());
+            strscpy(dev->devname, value.data(), sizeof(dev->devname));
         else if (key == "PARTNAME")
-            strcpy(dev->partname, value.data());
+            strscpy(dev->partname, value.data(), sizeof(dev->devname));
 
         return true;
     });
 }
 
-static void collect_devices() {
+static void collect_devices(const auto &partition_map) {
     char path[PATH_MAX];
     devinfo dev{};
     if (auto dir = xopen_dir("/sys/dev/block"); dir) {
@@ -55,7 +57,13 @@ static void collect_devices() {
             sprintf(path, "/sys/dev/block/%s/dm/name", entry->d_name);
             if (access(path, F_OK) == 0) {
                 auto name = rtrim(full_read(path));
-                strcpy(dev.dmname, name.data());
+                strscpy(dev.dmname, name.data(), sizeof(dev.dmname));
+            }
+            if (auto it = std::ranges::find_if(partition_map, [&](const auto &i) {
+                return i.first == dev.devname;
+            }); dev.partname[0] == '\0' && it != partition_map.end()) {
+                // use androidboot.partition_map as partname fallback.
+                strscpy(dev.partname, it->second.data(), sizeof(dev.partname));
             }
             sprintf(path, "/sys/dev/block/%s", entry->d_name);
             xrealpath(path, dev.devpath, sizeof(dev.devpath));
@@ -70,8 +78,9 @@ static struct {
 } blk_info;
 
 static dev_t setup_block() {
+    static const auto partition_map = load_partition_map();
     if (dev_list.empty())
-        collect_devices();
+        collect_devices(partition_map);
 
     for (int tries = 0; tries < 3; ++tries) {
         for (auto &dev : dev_list) {
@@ -93,7 +102,7 @@ static dev_t setup_block() {
         // Wait 10ms and try again
         usleep(10000);
         dev_list.clear();
-        collect_devices();
+        collect_devices(partition_map);
     }
 
     // The requested partname does not exist
@@ -236,6 +245,7 @@ void MagiskInit::setup_tmp(const char *path) {
 
     xmkdir(INTLROOT, 0711);
     xmkdir(DEVICEDIR, 0711);
+    xmkdir(WORKERDIR, 0);
 
     mount_preinit_dir(preinit_dev);
 
@@ -248,6 +258,22 @@ void MagiskInit::setup_tmp(const char *path) {
     xsymlink("./magiskpolicy", "supolicy");
 
     xmount(".", path, nullptr, MS_BIND, nullptr);
+
+    chdir(path);
+
+    // Prepare worker
+    xmount(WORKERDIR, WORKERDIR, nullptr, MS_BIND, nullptr);
+
+    // Use isolated devpts if kernel support
+    if (access("/dev/pts/ptmx", F_OK) == 0) {
+        xmkdirs(SHELLPTS, 0755);
+        xmount("devpts", SHELLPTS, "devpts", MS_NOSUID | MS_NOEXEC, "newinstance");
+        xmount(nullptr, SHELLPTS, nullptr, MS_PRIVATE, nullptr);
+        if (access(SHELLPTS "/ptmx", F_OK)) {
+            umount2(SHELLPTS, MNT_DETACH);
+            rmdir(SHELLPTS);
+        }
+    }
 
     chdir("/");
 }
