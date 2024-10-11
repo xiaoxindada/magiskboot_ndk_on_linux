@@ -43,7 +43,7 @@ jobs:
           7za a magiskboot.7z out/*
 
       - name: Upload output to GH-Release
-        uses: ncipollo/release-action@v1.8.6
+        uses: ncipollo/release-action@v1.14.0
         with:
           artifacts: "${{ github.workspace }}/magiskboot/magiskboot.7z"
           name: "Magiskboot-${{ env.MAGISK_VERSION }}"
