@@ -12,7 +12,7 @@ load("@rules_rust//rust:defs.bzl", "rust_library")
 package(default_visibility = ["//visibility:public"])
 
 rust_library(
-    name = "scratch",
+    name = "windows_aarch64_msvc",
     srcs = glob(
         include = ["**/*.rs"],
         allow_empty = True,
@@ -30,13 +30,13 @@ rust_library(
         ],
     ),
     crate_root = "src/lib.rs",
-    edition = "2015",
+    edition = "2021",
     rustc_flags = [
         "--cap-lints=allow",
     ],
     tags = [
         "cargo-bazel",
-        "crate-name=scratch",
+        "crate-name=windows_aarch64_msvc",
         "manual",
         "noclippy",
         "norustfmt",
@@ -79,9 +79,9 @@ rust_library(
         "@rules_rust//rust/platform:x86_64-unknown-none": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
-    version = "1.0.7",
+    version = "0.52.6",
     deps = [
-        "@vendor__scratch-1.0.7//:build_script_build",
+        "@vendor__windows_aarch64_msvc-0.52.6//:build_script_build",
     ],
 )
 
@@ -118,19 +118,19 @@ cargo_build_script(
             "WORKSPACE.bazel",
         ],
     ),
-    edition = "2015",
-    pkg_name = "scratch",
+    edition = "2021",
+    pkg_name = "windows_aarch64_msvc",
     rustc_flags = [
         "--cap-lints=allow",
     ],
     tags = [
         "cargo-bazel",
-        "crate-name=scratch",
+        "crate-name=windows_aarch64_msvc",
         "manual",
         "noclippy",
         "norustfmt",
     ],
-    version = "1.0.7",
+    version = "0.52.6",
     visibility = ["//visibility:private"],
 )
 

@@ -17,17 +17,13 @@ jobs:
     name: ${{matrix.name || format('Rust {0}', matrix.rust)}}
     needs: pre_ci
     if: needs.pre_ci.outputs.continue
-    runs-on: ${{matrix.os || 'ubuntu'}}-latest
+    runs-on: ${{matrix.os}}-latest
     strategy:
       fail-fast: false
       matrix:
+        rust: [nightly, beta, stable, 1.82.0, 1.74.0, 1.73.0]
+        os: [ubuntu]
         include:
-          - rust: nightly
-          - rust: beta
-          - rust: stable
-          - rust: 1.67.0
-          - rust: 1.70.0
-          - rust: 1.74.0
           - name: Cargo on macOS
             rust: nightly
             os: macos
@@ -57,20 +53,25 @@ jobs:
         # builds.
         run: |
           echo RUSTFLAGS=$RUSTFLAGS >> $GITHUB_ENV
-          echo exclude=--exclude cxx-test-suite ${{matrix.rust == '1.70.0' && '--exclude cxxbridge-cmd' || ''}} >> $GITHUB_OUTPUT
+          echo exclude=--exclude cxx-test-suite ${{matrix.rust == '1.73.0' && '--exclude cxxbridge-cmd' || ''}} >> $GITHUB_OUTPUT
         env:
-          RUSTFLAGS: ${{env.RUSTFLAGS}} ${{matrix.os && github.event_name != 'schedule' && '--cfg skip_ui_tests' || ''}}
+          RUSTFLAGS: ${{env.RUSTFLAGS}} ${{matrix.os != 'ubuntu' && github.event_name != 'schedule' && '--cfg skip_ui_tests' || ''}}
         id: testsuite
         shell: bash
       - run: cargo run --manifest-path demo/Cargo.toml
       - run: cargo test --workspace ${{steps.testsuite.outputs.exclude}}
-        if: matrix.rust != '1.67.0'
       - run: cargo check --no-default-features --features alloc
         env:
           RUSTFLAGS: --cfg compile_error_if_std ${{env.RUSTFLAGS}}
       - run: cargo check --no-default-features
         env:
           RUSTFLAGS: --cfg compile_error_if_alloc --cfg cxx_experimental_no_alloc ${{env.RUSTFLAGS}}
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu' && matrix.rust == 'nightly' && always()
+        with:
+          name: Cargo.lock
+          path: Cargo.lock
+        continue-on-error: true
 
   reindeer:
     name: Reindeer
@@ -107,6 +108,14 @@ jobs:
         continue-on-error: ${{matrix.os == 'windows'}}  # https://github.com/bazelbuild/bazel/issues/18592
       - run: bazel test ... --verbose_failures --noshow_progress ${{matrix.os == 'macos' && '--xcode_version_config=tools/bazel:github_actions_xcodes' || ''}}
         continue-on-error: ${{matrix.os == 'windows'}}  # https://github.com/bazelbuild/bazel/issues/18592
+      - name: Check MODULE.bazel.lock up to date
+        run: git diff --exit-code
+        if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+      - run: bazel run //third-party:vendor
+        if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+      - name: Check third-party/bazel up to date
+        run: git diff --exit-code
+        if: matrix.os == 'ubuntu' || matrix.os == 'macos'
 
   minimal:
     name: Minimal versions
@@ -145,6 +154,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
     timeout-minutes: 45
+    env:
+      RUSTFLAGS: -Dwarnings
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly

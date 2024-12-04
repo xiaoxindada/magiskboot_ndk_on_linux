@@ -15,11 +15,13 @@
     clippy::match_on_vec_items,
     clippy::match_same_arms,
     clippy::module_name_repetitions,
+    clippy::needless_lifetimes,
     clippy::needless_pass_by_value,
     clippy::new_without_default,
     clippy::nonminimal_bool,
     clippy::or_fun_call,
     clippy::redundant_else,
+    clippy::ref_option,
     clippy::shadow_unrelated,
     clippy::similar_names,
     clippy::single_match_else,
@@ -27,7 +29,8 @@
     clippy::struct_field_names,
     clippy::too_many_arguments,
     clippy::too_many_lines,
-    clippy::toplevel_ref_arg
+    clippy::toplevel_ref_arg,
+    clippy::uninlined_format_args
 )]
 
 mod app;

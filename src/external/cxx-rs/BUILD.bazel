@@ -13,7 +13,10 @@ rust_library(
         ":cxxbridge-macro",
     ],
     visibility = ["//visibility:public"],
-    deps = [":core-lib"],
+    deps = [
+        ":core-lib",
+        "@crates.io//:foldhash",
+    ],
 )
 
 alias(
@@ -54,6 +57,9 @@ rust_proc_macro(
     name = "cxxbridge-macro",
     srcs = glob(["macro/src/**/*.rs"]),
     edition = "2021",
+    proc_macro_deps = [
+        "@crates.io//:rustversion",
+    ],
     deps = [
         "@crates.io//:proc-macro2",
         "@crates.io//:quote",
@@ -69,7 +75,6 @@ rust_library(
     deps = [
         "@crates.io//:cc",
         "@crates.io//:codespan-reporting",
-        "@crates.io//:once_cell",
         "@crates.io//:proc-macro2",
         "@crates.io//:quote",
         "@crates.io//:scratch",

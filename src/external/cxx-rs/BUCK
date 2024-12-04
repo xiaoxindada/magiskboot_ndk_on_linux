@@ -13,6 +13,7 @@ rust_library(
     deps = [
         ":core",
         ":cxxbridge-macro",
+        "//third-party:foldhash",
     ],
 )
 
@@ -58,6 +59,7 @@ rust_library(
     deps = [
         "//third-party:proc-macro2",
         "//third-party:quote",
+        "//third-party:rustversion",
         "//third-party:syn",
     ],
 )
@@ -73,7 +75,6 @@ rust_library(
     deps = [
         "//third-party:cc",
         "//third-party:codespan-reporting",
-        "//third-party:once_cell",
         "//third-party:proc-macro2",
         "//third-party:quote",
         "//third-party:scratch",
