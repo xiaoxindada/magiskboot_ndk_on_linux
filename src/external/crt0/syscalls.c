@@ -5,7 +5,7 @@
 #include "linux_syscall_support.h"
 
 // Some missing declarations
-static inline _syscall3(int, faccessat, int, f, const char *, p, int, m)
+_syscall3(int, faccessat, int, f, const char *, p, int, m)
 _syscall2(int, umount2, const char *, t, int, f)
 #ifdef __NR_renameat
 _syscall4(int, renameat, int, o, const char *, op, int, n, const char *, np)
@@ -26,6 +26,7 @@ _syscall2(int, fchmod, int, fd, mode_t, mode)
 _syscall4(int, fchmodat, int, dirfd, const char *, pathname, mode_t, mode, int, flags)
 _syscall5(int, fchownat, int, dirfd, const char *, p, uid_t, owner, gid_t, group, int, flags)
 _syscall3(ssize_t, readv, int, fd, const struct kernel_iovec*, v, size_t, c)
+_syscall5(int, pselect6, fd_set*, s1, fd_set*, s2, fd_set*, s3, struct kernel_timespec*, ts, void*, p)
 
 #define SYMBOL_ALIAS(from, to) \
 __asm__(".global " #from " \n " #from " = " #to)
@@ -68,6 +69,11 @@ EXPORT_SYMBOL(lseek);
 EXPORT_SYMBOL(execve);
 EXPORT_SYMBOL(getdents64);
 EXPORT_SYMBOL(clock_gettime);
+EXPORT_SYMBOL(nanosleep);
+EXPORT_SYMBOL(sigemptyset);
+EXPORT_SYMBOL(sigaddset);
+EXPORT_SYMBOL(sigprocmask);
+EXPORT_SYMBOL(raise);
 
 SYMBOL_ALIAS(_exit, sys_exit_group);
 SYMBOL_ALIAS(openat64, openat);
@@ -89,12 +95,10 @@ SYMBOL_ALIAS(mmap64, mmap);
 
 _syscall3(int, fchown32, int, i, uid_t, u, gid_t, g)
 _syscall2(int, ftruncate64, int, i, off64_t, off)
-_syscall6(void*, mmap2, void*, addr, size_t, size, int, prot, int, flag, int, fd, long, off)
 _syscall3(int, fcntl64, int, fd, int, op, long, arg)
 EXPORT_SYMBOL(ftruncate64);
 EXPORT_SYMBOL(fstat64);
 EXPORT_SYMBOL(fstatat64);
-EXPORT_SYMBOL(mmap2);
 SYMBOL_ALIAS(fstat, fstat64);
 SYMBOL_ALIAS(fstatat, fstatat64);
 SYMBOL_ALIAS(fchown, sys_fchown32);
@@ -110,7 +114,7 @@ off64_t lseek64(int fd, off64_t off, int whence) {
     return result;
 }
 
-// Source: bionic/libc/bionic/mmap.cpp
+// Source: bionic/libc/bionic/legacy_32_bit_support.cpp
 #define MMAP2_SHIFT 12 // 2**12 == 4096
 
 void *mmap64(void* addr, size_t size, int prot, int flags, int fd, off64_t offset) {
@@ -126,7 +130,7 @@ void *mmap64(void* addr, size_t size, int prot, int flags, int fd, off64_t offse
         return MAP_FAILED;
     }
 
-    return sys_mmap2(addr, size, prot, flags, fd, offset >> MMAP2_SHIFT);
+    return sys__mmap2(addr, size, prot, flags, fd, offset >> MMAP2_SHIFT);
 }
 
 void *mmap(void *addr, size_t size, int prot, int flags, int fd, off_t offset) {
@@ -215,67 +219,9 @@ int creat(const char *path, mode_t mode) {
     return sys_open(path, O_WRONLY | O_CREAT | O_TRUNC, mode);
 }
 
-// Source: bionic/libc/bionic/abort.cpp
-void abort() {
-    // Don't block SIGABRT to give any signal handler a chance; we ignore
-    // any errors -- X311J doesn't allow abort to return anyway.
-    struct kernel_sigset_t mask;
-    sys_sigfillset(&mask);
-    sys_sigdelset(&mask, SIGABRT);
-
-    sys_sigprocmask(SIG_SETMASK, &mask, NULL);
-    sys_raise(SIGABRT);
-
-    // If SIGABRT is ignored or it's caught and the handler returns,
-    // remove the SIGABRT signal handler and raise SIGABRT again.
-    struct kernel_sigaction sa = { .sa_handler_ = SIG_DFL, .sa_flags = SA_RESTART };
-#ifdef __NR_sigaction
-    sys_sigaction(SIGABRT, &sa, NULL);
-#else
-    sys_rt_sigaction(SIGABRT, &sa, NULL, sizeof(sa.sa_mask));
-#endif
-
-    sys_sigprocmask(SIG_SETMASK, &mask, NULL);
-    sys_raise(SIGABRT);
-
-    // If we get this far, just exit.
-    _exit(127);
-}
-
-// Source: bionic/libc/bionic/usleep.cpp
-int usleep(useconds_t us) {
-    struct kernel_timespec ts;
-    ts.tv_sec = us / 1000000;
-    ts.tv_nsec = (us % 1000000) * 1000;
-    return sys_nanosleep(&ts, NULL);
-}
-
-// Source: bionic/libc/bionic/faccessat.cpp
-int faccessat(int dirfd, const char *pathname, int mode, int flags) {
-    // "The mode specifies the accessibility check(s) to be performed,
-    // and is either the value F_OK, or a mask consisting of the
-    // bitwise OR of one or more of R_OK, W_OK, and X_OK."
-    if ((mode != F_OK) && ((mode & ~(R_OK | W_OK | X_OK)) != 0) &&
-        ((mode & (R_OK | W_OK | X_OK)) == 0)) {
-        errno = EINVAL;
-        return -1;
-    }
-
-    if (flags != 0) {
-        // We deliberately don't support AT_SYMLINK_NOFOLLOW, a glibc
-        // only feature which is error prone and dangerous.
-        // More details at http://permalink.gmane.org/gmane.linux.lib.musl.general/6952
-        //
-        // AT_EACCESS isn't supported either. Android doesn't have setuid
-        // programs, and never runs code with euid!=uid.
-        //
-        // We could use faccessat2(2) from Linux 5.8, but since we don't want the
-        // first feature and don't need the second, we just reject such requests.
-        errno = EINVAL;
-        return -1;
-    }
-
-    return sys_faccessat(dirfd, pathname, mode);
+sighandler_t signal(int sig, sighandler_t handler) {
+    struct kernel_sigaction sa = { .sa_handler_ = handler, .sa_flags = SA_RESTART };
+    return (sys_sigaction(sig, &sa, &sa) == -1) ? SIG_ERR : sa.sa_handler_;
 }
 
 int open(const char *pathname, int flags, ...) {
@@ -293,25 +239,4 @@ int open(const char *pathname, int flags, ...) {
 #endif
 
     return sys_openat(AT_FDCWD, pathname, flags, mode);
-}
-
-// Source: bionic/libc/bionic/fcntl.cpp
-int fcntl(int fd, int cmd, ...) {
-    va_list args;
-    va_start(args, cmd);
-    // This is a bit sketchy for LP64, especially because arg can be an int,
-    // but all of our supported 64-bit ABIs pass the argument in a register.
-    long arg = va_arg(args, long);
-    va_end(args);
-
-    if (cmd == F_SETFD && (arg & ~FD_CLOEXEC) != 0) {
-        return -1;
-    }
-
-#if defined(__LP64__)
-    return sys_fcntl(fd, cmd, arg);
-#else
-    // For LP32 we use the fcntl64 system call to signal that we're using struct flock64.
-    return sys_fcntl64(fd, cmd, arg);
-#endif
 }

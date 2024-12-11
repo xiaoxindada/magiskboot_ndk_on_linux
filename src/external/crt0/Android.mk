@@ -23,11 +23,10 @@ LOCAL_SRC_FILES := \
     stdio.c \
     syscalls.c \
     printf/printf.c \
-    bionic/dirent.cpp \
-    bionic/strerror.cpp \
     bionic/syscall-$(TARGET_ARCH).S \
     $(wildcard $(LOCAL_PATH)/musl/*.c) \
-    $(wildcard $(LOCAL_PATH)/bionic/*/*.c)
+    $(wildcard $(LOCAL_PATH)/bionic/*/*.c) \
+    $(wildcard $(LOCAL_PATH)/bionic/*.cpp)
 
 LOCAL_SRC_FILES := $(LOCAL_SRC_FILES:$(LOCAL_PATH)/%=%)
 
