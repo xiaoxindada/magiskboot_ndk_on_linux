@@ -147,7 +147,7 @@ rust_out = native_out / "rust"
 
 # Global vars
 config = {}
-archs = {"armeabi-v7a", "x86", "arm64-v8a", "x86_64", "riscv64"}
+archs = {"armeabi-v7a", "x86", "arm64-v8a", "x86_64"}
 triples = map(support_abis.get, archs)
 build_abis = dict(zip(archs, triples))
 
