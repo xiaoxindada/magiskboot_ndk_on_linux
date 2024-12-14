@@ -103,10 +103,10 @@ def system(cmd):
     return subprocess.run(cmd, shell=True, stdout=sys.stdout)
 
 
-def cmd_out(cmd, env=None):
+def cmd_out(cmd):
     return (
         subprocess.run(
-            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env
+            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
         )
         .stdout.strip()
         .decode("utf-8")
@@ -115,7 +115,7 @@ def cmd_out(cmd, env=None):
 
 LOCALDIR = op.realpath(".")
 cpu_count = multiprocessing.cpu_count()
-os_name = platform.system().lower()
+os_name = "linux"
 release = True
 
 # Common constants
@@ -202,9 +202,8 @@ def dump_flag_header():
     write_if_diff(op.join(native_gen_path, "flags.h"), flag_txt)
 
 
-
 def build_native():
-    targets = default_targets
+    targets = support_targets
     print("* Building: " + " ".join(targets))
 
     if sccache := shutil.which("sccache"):
@@ -216,7 +215,6 @@ def build_native():
 
     build_rust_src(targets)
     build_cpp_src(targets)
-
 
 
 def run_cargo(cmds, triple="aarch64-linux-android"):
@@ -236,8 +234,6 @@ def build_rust_src(targets: set):
     if "resetprop" in targets:
         targets.add("magisk")
     targets = targets & rust_targets
-    if not targets:
-        return
 
     os.chdir(Path(LOCALDIR, "src"))
 
@@ -317,13 +313,14 @@ def run_cargo_build():
 
     # Start building the actual build commands
     cmds = ["build", "-p", ""]
-    rust_out = "debug"
     if release:
-        cmds.append("-r")
-        rust_out = "release"
+        profile = "release"
+    else:
+        profile = "debug"
 
-    cmds.append("--target")
-    cmds.append("")
+    for triple in build_abis.values():
+        cmds.append("--target")
+        cmds.append(triple)
 
     for arch, triple in zip(archs, triples):
         rust_triple = (
@@ -340,23 +337,26 @@ def run_cargo_build():
         arch_out = op.join(native_gen_path, arch)
         mkdir_p(arch_out)
         for tgt in targets:
-            source = op.join("target", rust_triple, rust_out, f"lib{tgt}.a")
+            source = rust_out / triple / profile / f"lib{tgt}.a"
             target = op.join(arch_out, f"lib{tgt}-rs.a")
             mv(source, target)
 
 
 def setup_ndk():
-    os_name = platform.system().lower()
+    ndk_ver = config["ondkVersion"]
     url = f"https://github.com/topjohnwu/ondk/releases/download/{config['ondkVersion']}/ondk-{config['ondkVersion']}-{os_name}.tar.xz"
     ndk_archive = url.split("/")[-1]
-    print(f"Downloading {ndk_archive}")
-    wget.download(url, ndk_archive)
+    ondk_path = Path(LOCALDIR, f"ondk-{ndk_ver}")
+
+    if not os.path.isfile(ndk_archive):
+        print(f"Downloading {ndk_archive}")
+        wget.download(url, ndk_archive)
     print(f"Extracting {ndk_archive}")
     with tarfile.open(ndk_archive, mode="r|xz") as tar:
         tar.extractall(LOCALDIR)
-    if op.exists(f"ondk-{config['ondkVersion']}"):
+    if op.exists(ondk_path):
         rm_rf(ndk_root)
-        mv(f"ondk-{config['ondkVersion']}", ndk_root)
+        mv(ondk_path, ndk_root)
 
 
 def run_ndk_build(cmds: list):
@@ -453,9 +453,6 @@ def update_code():
     system(
         f"tail -n 4 <Magisk/gradle.properties >magisk_config.prop && echo 'magisk.version={magisk_version}' >>magisk_config.prop"
     )
-
-    # Fix busybox git push missing header file
-    system("rm -rf Magisk/native/src/external/busybox/include/.gitignore")
 
     # Fix path defined
     system(
