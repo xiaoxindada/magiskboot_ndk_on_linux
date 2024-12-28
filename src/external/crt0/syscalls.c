@@ -27,6 +27,8 @@ _syscall4(int, fchmodat, int, dirfd, const char *, pathname, mode_t, mode, int, 
 _syscall5(int, fchownat, int, dirfd, const char *, p, uid_t, owner, gid_t, group, int, flags)
 _syscall3(ssize_t, readv, int, fd, const struct kernel_iovec*, v, size_t, c)
 _syscall5(int, pselect6, fd_set*, s1, fd_set*, s2, fd_set*, s3, struct kernel_timespec*, ts, void*, p)
+_syscall4(ssize_t, fgetxattr, int, fd, const char *, n, void *, v, size_t, s)
+_syscall4(ssize_t, fsetxattr, int, fd, const char *, n, void *, v, size_t, s)
 
 #define SYMBOL_ALIAS(from, to) \
 __asm__(".global " #from " \n " #from " = " #to)
@@ -74,6 +76,12 @@ EXPORT_SYMBOL(sigemptyset);
 EXPORT_SYMBOL(sigaddset);
 EXPORT_SYMBOL(sigprocmask);
 EXPORT_SYMBOL(raise);
+EXPORT_SYMBOL(getxattr);
+EXPORT_SYMBOL(setxattr);
+EXPORT_SYMBOL(lgetxattr);
+EXPORT_SYMBOL(lsetxattr);
+EXPORT_SYMBOL(fgetxattr);
+EXPORT_SYMBOL(fsetxattr);
 
 SYMBOL_ALIAS(_exit, sys_exit_group);
 SYMBOL_ALIAS(openat64, openat);
