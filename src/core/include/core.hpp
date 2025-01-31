@@ -26,19 +26,8 @@ enum class RespondCode : int {
     END
 };
 
-struct module_info {
-    std::string name;
-    int z32 = -1;
-#if defined(__LP64__)
-    int z64 = -1;
-#endif
-};
-
-extern bool zygisk_enabled;
-extern std::vector<module_info> *module_list;
 extern std::string native_bridge;
 
-void reset_zygisk(bool restore);
 int connect_daemon(int req, bool create = false);
 void unlock_blocks();
 
@@ -55,19 +44,13 @@ void exec_task(std::function<void()> &&task);
 // Daemon handlers
 void denylist_handler(int client, const sock_cred *cred);
 void su_daemon_handler(int client, const sock_cred *cred);
-void zygisk_handler(int client, const sock_cred *cred);
 
 // Module stuffs
-void handle_modules();
-void load_modules();
 void disable_modules();
 void remove_modules();
-void exec_module_scripts(const char *stage);
 
 // Scripting
 void exec_script(const char *script);
-void exec_common_scripts(const char *stage);
-void exec_module_scripts(const char *stage, const std::vector<std::string_view> &modules);
 void clear_pkg(const char *pkg, int user_id);
 [[noreturn]] void install_module(const char *file);
 

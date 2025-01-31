@@ -1,19 +1,22 @@
-use crate::consts::{MAGISK_FULL_VER, MAIN_CONFIG};
+use crate::consts::{MAGISK_FULL_VER, MAIN_CONFIG, SECURE_DIR};
 use crate::db::Sqlite3;
-use crate::ffi::{get_magisk_tmp, RequestCode};
+use crate::ffi::{
+    check_key_combo, disable_modules, exec_common_scripts, exec_module_scripts, get_magisk_tmp,
+    initialize_denylist, setup_magisk_env, DbEntryKey, ModuleInfo, RequestCode,
+};
 use crate::get_prop;
-use crate::logging::{magisk_logging, start_log_daemon};
+use crate::logging::{magisk_logging, setup_logfile, start_log_daemon};
+use crate::mount::setup_mounts;
 use crate::package::ManagerInfo;
 use base::libc::{O_CLOEXEC, O_RDONLY};
 use base::{
-    cstr, info, libc, open_fd, BufReadExt, Directory, FsPath, FsPathBuf, LoggedResult, ReadExt,
-    Utf8CStr, Utf8CStrBufArr,
+    cstr, error, info, libc, open_fd, BufReadExt, FsPath, FsPathBuf, ResultExt, Utf8CStr,
+    Utf8CStrBufArr,
 };
-use bit_set::BitSet;
-use bytemuck::bytes_of;
 use std::fs::File;
-use std::io;
-use std::io::{BufReader, Read, Write};
+use std::io::BufReader;
+use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 // Global magiskd singleton
@@ -60,6 +63,10 @@ pub struct MagiskD {
     pub sql_connection: Mutex<Option<Sqlite3>>,
     pub manager_info: Mutex<ManagerInfo>,
     boot_stage_lock: Mutex<BootStateFlags>,
+    pub module_list: OnceLock<Vec<ModuleInfo>>,
+    pub zygiskd_sockets: Mutex<(Option<UnixStream>, Option<UnixStream>)>,
+    pub zygisk_enabled: AtomicBool,
+    pub zygote_start_count: AtomicU32,
     sdk_int: i32,
     pub is_emulator: bool,
     is_recovery: bool,
@@ -70,8 +77,16 @@ impl MagiskD {
         self.is_recovery
     }
 
+    pub fn zygisk_enabled(&self) -> bool {
+        self.zygisk_enabled.load(Ordering::Acquire)
+    }
+
     pub fn sdk_int(&self) -> i32 {
         self.sdk_int
+    }
+
+    pub fn set_module_list(&self, module_list: Vec<ModuleInfo>) {
+        self.module_list.set(module_list).ok();
     }
 
     pub fn app_data_dir(&self) -> &'static Utf8CStr {
@@ -82,39 +97,85 @@ impl MagiskD {
         }
     }
 
-    // app_id = app_no + AID_APP_START
-    // app_no range: [0, 9999]
-    pub fn get_app_no_list(&self) -> BitSet {
-        let mut list = BitSet::new();
-        let _: LoggedResult<()> = try {
-            let mut app_data_dir = Directory::open(self.app_data_dir())?;
-            // For each user
-            loop {
-                let entry = match app_data_dir.read()? {
-                    None => break,
-                    Some(e) => e,
-                };
-                let mut user_dir = match entry.open_as_dir() {
-                    Err(_) => continue,
-                    Ok(dir) => dir,
-                };
-                // For each package
-                loop {
-                    match user_dir.read()? {
-                        None => break,
-                        Some(e) => {
-                            let attr = e.get_attr()?;
-                            let app_id = to_app_id(attr.st.st_uid as i32);
-                            if (AID_APP_START..=AID_APP_END).contains(&app_id) {
-                                let app_no = app_id - AID_APP_START;
-                                list.insert(app_no as usize);
-                            }
-                        }
-                    }
-                }
+    fn post_fs_data(&self) -> bool {
+        setup_logfile();
+        info!("** post-fs-data mode running");
+
+        self.preserve_stub_apk();
+
+        // Check secure dir
+        let secure_dir = FsPath::from(cstr!(SECURE_DIR));
+        if !secure_dir.exists() {
+            if self.sdk_int < 24 {
+                secure_dir.mkdir(0o700).log().ok();
+            } else {
+                error!("* {} is not present, abort", SECURE_DIR);
+                return true;
             }
-        };
-        list
+        }
+
+        self.prune_su_access();
+
+        if !setup_magisk_env() {
+            error!("* Magisk environment incomplete, abort");
+            return true;
+        }
+
+        // Check safe mode
+        let boot_cnt = self.get_db_setting(DbEntryKey::BootloopCount);
+        self.set_db_setting(DbEntryKey::BootloopCount, boot_cnt + 1)
+            .log()
+            .ok();
+        let safe_mode = boot_cnt >= 2
+            || get_prop(cstr!("persist.sys.safemode"), true) == "1"
+            || get_prop(cstr!("ro.sys.safemode"), false) == "1"
+            || check_key_combo();
+
+        if safe_mode {
+            info!("* Safe mode triggered");
+            // Disable all modules and zygisk so next boot will be clean
+            disable_modules();
+            self.set_db_setting(DbEntryKey::ZygiskConfig, 0).log().ok();
+            return true;
+        }
+
+        exec_common_scripts(cstr!("post-fs-data"));
+        self.zygisk_enabled.store(
+            self.get_db_setting(DbEntryKey::ZygiskConfig) != 0,
+            Ordering::Release,
+        );
+        initialize_denylist();
+        setup_mounts();
+        self.handle_modules();
+
+        false
+    }
+
+    fn late_start(&self) {
+        setup_logfile();
+        info!("** late_start service mode running");
+
+        exec_common_scripts(cstr!("service"));
+        if let Some(module_list) = self.module_list.get() {
+            exec_module_scripts(cstr!("service"), module_list);
+        }
+    }
+
+    fn boot_complete(&self) {
+        setup_logfile();
+        info!("** boot-complete triggered");
+
+        // Reset the bootloop counter once we have boot-complete
+        self.set_db_setting(DbEntryKey::BootloopCount, 0).log().ok();
+
+        // At this point it's safe to create the folder
+        let secure_dir = FsPath::from(cstr!(SECURE_DIR));
+        if !secure_dir.exists() {
+            secure_dir.mkdir(0o700).log().ok();
+        }
+
+        self.ensure_manager();
+        self.zygisk_reset(true)
     }
 
     pub fn boot_stage_handler(&self, client: i32, code: i32) {
@@ -203,6 +264,7 @@ pub fn daemon_entry() {
         sdk_int,
         is_emulator,
         is_recovery,
+        zygote_start_count: AtomicU32::new(1),
         ..Default::default()
     };
     MAGISKD.set(magiskd).ok();
@@ -241,40 +303,4 @@ fn check_data() -> bool {
 
 pub fn get_magiskd() -> &'static MagiskD {
     unsafe { MAGISKD.get().unwrap_unchecked() }
-}
-
-pub trait IpcRead {
-    fn ipc_read_int(&mut self) -> io::Result<i32>;
-    fn ipc_read_string(&mut self) -> io::Result<String>;
-}
-
-impl<T: Read> IpcRead for T {
-    fn ipc_read_int(&mut self) -> io::Result<i32> {
-        let mut val: i32 = 0;
-        self.read_pod(&mut val)?;
-        Ok(val)
-    }
-
-    fn ipc_read_string(&mut self) -> io::Result<String> {
-        let len = self.ipc_read_int()?;
-        let mut val = "".to_string();
-        self.take(len as u64).read_to_string(&mut val)?;
-        Ok(val)
-    }
-}
-
-pub trait IpcWrite {
-    fn ipc_write_int(&mut self, val: i32) -> io::Result<()>;
-    fn ipc_write_string(&mut self, val: &str) -> io::Result<()>;
-}
-
-impl<T: Write> IpcWrite for T {
-    fn ipc_write_int(&mut self, val: i32) -> io::Result<()> {
-        self.write_all(bytes_of(&val))
-    }
-
-    fn ipc_write_string(&mut self, val: &str) -> io::Result<()> {
-        self.ipc_write_int(val.len() as i32)?;
-        self.write_all(val.as_bytes())
-    }
 }

@@ -3,7 +3,7 @@ use crate::{
     cstr, errno, error, FsPath, FsPathBuf, LibcReturn, Utf8CStr, Utf8CStrBuf, Utf8CStrBufArr,
     Utf8CStrWrite,
 };
-use bytemuck::{bytes_of_mut, Pod};
+use bytemuck::{bytes_of, bytes_of_mut, Pod};
 use libc::{
     c_uint, dirent, makedev, mode_t, EEXIST, ENOENT, F_OK, O_CLOEXEC, O_CREAT, O_PATH, O_RDONLY,
     O_RDWR, O_TRUNC, O_WRONLY,
@@ -14,13 +14,11 @@ use std::cmp::min;
 use std::ffi::CStr;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
-use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::os::fd::{AsFd, BorrowedFd, IntoRawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::Path;
-use std::sync::Arc;
 use std::{io, mem, ptr, slice};
 
 pub fn __open_fd_impl(path: &Utf8CStr, flags: i32, mode: mode_t) -> io::Result<OwnedFd> {
@@ -123,6 +121,7 @@ impl<T: BufRead> BufReadExt for T {
 
 pub trait WriteExt {
     fn write_zeros(&mut self, len: usize) -> io::Result<()>;
+    fn write_pod<F: Pod>(&mut self, data: &F) -> io::Result<()>;
 }
 
 impl<T: Write> WriteExt for T {
@@ -134,6 +133,10 @@ impl<T: Write> WriteExt for T {
             len -= l;
         }
         Ok(())
+    }
+
+    fn write_pod<F: Pod>(&mut self, data: &F) -> io::Result<()> {
+        self.write_all(bytes_of(data))
     }
 }
 
@@ -265,7 +268,7 @@ impl DirEntry<'_> {
     }
 
     unsafe fn open_fd(&self, flags: i32) -> io::Result<RawFd> {
-        self.dir.open_fd(self.d_name(), flags, 0)
+        self.dir.open_raw_fd(self.d_name(), flags, 0)
     }
 
     pub fn open_as_dir(&self) -> io::Result<Directory> {
@@ -350,8 +353,15 @@ impl Directory {
         unsafe { libc::rewinddir(self.dirp) }
     }
 
-    unsafe fn open_fd(&self, name: &CStr, flags: i32, mode: i32) -> io::Result<RawFd> {
+    unsafe fn open_raw_fd(&self, name: &CStr, flags: i32, mode: i32) -> io::Result<RawFd> {
         libc::openat(self.as_raw_fd(), name.as_ptr(), flags | O_CLOEXEC, mode).check_os_err()
+    }
+
+    pub fn open_fd(&self, name: &Utf8CStr, flags: i32, mode: i32) -> io::Result<OwnedFd> {
+        unsafe {
+            self.open_raw_fd(name.as_cstr(), flags, mode)
+                .map(|fd| OwnedFd::from_raw_fd(fd))
+        }
     }
 
     pub fn contains_path(&self, path: &CStr) -> bool {
@@ -414,7 +424,7 @@ impl Directory {
             } else if e.is_file() {
                 let mut src = e.open_as_file(O_RDONLY)?;
                 let mut dest = unsafe {
-                    File::from_raw_fd(dir.open_fd(
+                    File::from_raw_fd(dir.open_raw_fd(
                         e.d_name(),
                         O_WRONLY | O_CREAT | O_TRUNC,
                         0o777,
@@ -1029,33 +1039,4 @@ pub fn parse_mount_info(pid: &str) -> Vec<MountInfo> {
         });
     }
     res
-}
-
-#[derive(Default, Clone)]
-pub enum SharedFd {
-    #[default]
-    None,
-    Shared(Arc<OwnedFd>),
-}
-
-impl From<OwnedFd> for SharedFd {
-    fn from(fd: OwnedFd) -> Self {
-        SharedFd::Shared(Arc::new(fd))
-    }
-}
-
-impl SharedFd {
-    pub const fn new() -> Self {
-        SharedFd::None
-    }
-
-    // This is unsafe because we cannot create multiple mutable references to the same fd.
-    // This can only be safely used if and only if the underlying fd points to a pipe,
-    // and the read/write operations performed on the file involves bytes less than PIPE_BUF.
-    pub unsafe fn as_file(&self) -> Option<ManuallyDrop<File>> {
-        match self {
-            SharedFd::None => None,
-            SharedFd::Shared(arc) => Some(ManuallyDrop::new(File::from_raw_fd(arc.as_raw_fd()))),
-        }
-    }
 }

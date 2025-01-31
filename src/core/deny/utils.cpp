@@ -370,7 +370,7 @@ int enable_deny() {
 
         denylist_enforced = true;
 
-        if (!zygisk_enabled) {
+        if (!MagiskD().zygisk_enabled()) {
             if (new_daemon_thread(&logcat)) {
                 denylist_enforced = false;
                 return DenyResponse::ERROR;
@@ -428,4 +428,13 @@ bool is_deny_target(int uid, string_view process) {
         }
     }
     return false;
+}
+
+void update_deny_flags(int uid, rust::Str process, uint32_t &flags) {
+    if (is_deny_target(uid, { process.begin(), process.end() })) {
+        flags |= +ZygiskStateFlags::ProcessOnDenyList;
+    }
+    if (denylist_enforced) {
+        flags |= +ZygiskStateFlags::DenyListEnforced;
+    }
 }

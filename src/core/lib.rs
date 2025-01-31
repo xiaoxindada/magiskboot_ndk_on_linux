@@ -2,15 +2,19 @@
 #![feature(try_blocks)]
 #![feature(let_chains)]
 #![feature(fn_traits)]
+#![feature(unix_socket_ancillary_data)]
+#![feature(unix_socket_peek)]
 #![allow(clippy::missing_safety_doc)]
 
 use base::Utf8CStr;
 use daemon::{daemon_entry, get_magiskd, MagiskD};
 use db::get_default_db_settings;
 use logging::{android_logging, setup_logfile, zygisk_close_logd, zygisk_get_logd, zygisk_logging};
-use mount::{clean_mounts, find_preinit_device, revert_unmount, setup_mounts};
+use mount::{clean_mounts, find_preinit_device, revert_unmount};
 use resetprop::{persist_delete_prop, persist_get_prop, persist_get_props, persist_set_prop};
+use socket::{recv_fd, recv_fds, send_fd, send_fds};
 use su::get_default_root_settings;
+use zygisk::zygisk_should_load_module;
 
 #[path = "../include/consts.rs"]
 mod consts;
@@ -20,7 +24,9 @@ mod logging;
 mod mount;
 mod package;
 mod resetprop;
+mod socket;
 mod su;
+mod zygisk;
 
 #[cxx::bridge]
 pub mod ffi {
@@ -68,15 +74,22 @@ pub mod ffi {
         #[cxx_name = "Utf8CStr"]
         type Utf8CStrRef<'a> = base::ffi::Utf8CStrRef<'a>;
 
-        include!("include/daemon.hpp");
+        include!("include/ffi.hpp");
 
         #[cxx_name = "get_magisk_tmp_rs"]
         fn get_magisk_tmp() -> Utf8CStrRef<'static>;
         #[cxx_name = "resolve_preinit_dir_rs"]
         fn resolve_preinit_dir(base_dir: Utf8CStrRef) -> String;
+        fn setup_magisk_env() -> bool;
+        fn check_key_combo() -> bool;
+        fn disable_modules();
+        fn exec_common_scripts(stage: Utf8CStrRef);
+        fn exec_module_scripts(state: Utf8CStrRef, modules: &Vec<ModuleInfo>);
         fn install_apk(apk: Utf8CStrRef);
         fn uninstall_pkg(apk: Utf8CStrRef);
-
+        fn update_deny_flags(uid: i32, process: &str, flags: &mut u32);
+        fn initialize_denylist();
+        fn restore_zygisk_prop();
         fn switch_mnt_ns(pid: i32) -> i32;
     }
 
@@ -135,6 +148,27 @@ pub mod ffi {
         notify: bool,
     }
 
+    struct ModuleInfo {
+        name: String,
+        z32: i32,
+        z64: i32,
+    }
+
+    #[repr(i32)]
+    enum ZygiskRequest {
+        GetInfo,
+        ConnectCompanion,
+        GetModDir,
+    }
+
+    #[repr(u32)]
+    enum ZygiskStateFlags {
+        ProcessGrantedRoot = 0x00000001,
+        ProcessOnDenyList = 0x00000002,
+        DenyListEnforced = 0x40000000,
+        ProcessIsMagiskApp = 0x80000000,
+    }
+
     unsafe extern "C++" {
         include!("include/sqlite.hpp");
 
@@ -161,14 +195,18 @@ pub mod ffi {
         fn zygisk_close_logd();
         fn zygisk_get_logd() -> i32;
         fn setup_logfile();
-        fn setup_mounts();
         fn clean_mounts();
         fn find_preinit_device() -> String;
         fn revert_unmount(pid: i32);
+        fn zygisk_should_load_module(flags: u32) -> bool;
         unsafe fn persist_get_prop(name: Utf8CStrRef, prop_cb: Pin<&mut PropCb>);
         unsafe fn persist_get_props(prop_cb: Pin<&mut PropCb>);
         unsafe fn persist_delete_prop(name: Utf8CStrRef) -> bool;
         unsafe fn persist_set_prop(name: Utf8CStrRef, value: Utf8CStrRef) -> bool;
+        fn send_fd(socket: i32, fd: i32) -> bool;
+        fn send_fds(socket: i32, fds: &[i32]) -> bool;
+        fn recv_fd(socket: i32) -> i32;
+        fn recv_fds(socket: i32) -> Vec<i32>;
 
         #[namespace = "rust"]
         fn daemon_entry();
@@ -179,12 +217,14 @@ pub mod ffi {
         type MagiskD;
         fn is_recovery(&self) -> bool;
         fn sdk_int(&self) -> i32;
+        fn zygisk_enabled(&self) -> bool;
         fn boot_stage_handler(&self, client: i32, code: i32);
-        fn preserve_stub_apk(&self);
+        fn zygisk_handler(&self, client: i32);
+        fn zygisk_reset(&self, restore: bool);
         fn prune_su_access(&self);
-        fn uid_granted_root(&self, mut uid: i32) -> bool;
         #[cxx_name = "get_manager"]
         unsafe fn get_manager_for_cxx(&self, user: i32, ptr: *mut CxxString, install: bool) -> i32;
+        fn set_module_list(&self, module_list: Vec<ModuleInfo>);
 
         #[cxx_name = "get_db_settings"]
         fn get_db_settings_for_cxx(&self, cfg: &mut DbSettings) -> bool;
@@ -206,9 +246,7 @@ pub mod ffi {
     unsafe extern "C++" {
         #[allow(dead_code)]
         fn reboot(self: &MagiskD);
-        fn post_fs_data(self: &MagiskD) -> bool;
-        fn late_start(self: &MagiskD);
-        fn boot_complete(self: &MagiskD);
+        fn handle_modules(self: &MagiskD);
     }
 }
 
