@@ -1,14 +1,11 @@
 #![allow(
     clippy::assertions_on_constants,
-    clippy::assertions_on_result_states,
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::float_cmp,
-    clippy::needless_pass_by_ref_mut,
     clippy::needless_pass_by_value,
     clippy::ptr_cast_constness,
-    clippy::unit_cmp,
-    clippy::unseparated_literal_suffix
+    clippy::unit_cmp
 )]
 
 use cxx::{SharedPtr, UniquePtr};
@@ -259,6 +256,8 @@ fn test_c_method_calls() {
     assert_eq!(2021, unique_ptr.get());
     assert_eq!(2021, unique_ptr.get2());
     assert_eq!(2021, *unique_ptr.getRef());
+    assert_eq!(2021, unsafe { &mut *unique_ptr.as_mut_ptr() }.get());
+    assert_eq!(2021, unsafe { &*unique_ptr.as_ptr() }.get());
     assert_eq!(2021, *unique_ptr.pin_mut().getMut());
     assert_eq!(2022, unique_ptr.pin_mut().set_succeed(2022).unwrap());
     assert!(unique_ptr.pin_mut().get_fail().is_err());
