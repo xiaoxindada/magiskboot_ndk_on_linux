@@ -136,17 +136,49 @@ void MagiskD::reboot() const noexcept {
         exec_command_sync("/system/bin/reboot");
 }
 
+bool get_client_cred(int fd, sock_cred *cred) {
+    socklen_t len = sizeof(ucred);
+    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, cred, &len) != 0)
+        return false;
+    char buf[4096];
+    len = sizeof(buf);
+    if (getsockopt(fd, SOL_SOCKET, SO_PEERSEC, buf, &len) != 0)
+        len = 0;
+    buf[len] = '\0';
+    cred->context = buf;
+    return true;
+}
+
+bool read_string(int fd, std::string &str) {
+    str.clear();
+    int len = read_int(fd);
+    str.resize(len);
+    return xxread(fd, str.data(), len) == len;
+}
+
+string read_string(int fd) {
+    string str;
+    read_string(fd, str);
+    return str;
+}
+
+void write_string(int fd, string_view str) {
+    if (fd < 0) return;
+    write_int(fd, str.size());
+    xwrite(fd, str.data(), str.size());
+}
+
 static void handle_request_async(int client, int code, const sock_cred &cred) {
+    auto &daemon = MagiskD::Get();
     switch (code) {
     case +RequestCode::DENYLIST:
         denylist_handler(client, &cred);
         break;
     case +RequestCode::SUPERUSER:
-        su_daemon_handler(client, &cred);
+        daemon.su_daemon_handler(client, cred);
         break;
     case +RequestCode::ZYGOTE_RESTART: {
         LOGI("** zygote restarted\n");
-        auto &daemon = MagiskD::Get();
         daemon.prune_su_access();
         scan_deny_apps();
         daemon.zygisk_reset(false);
@@ -154,7 +186,7 @@ static void handle_request_async(int client, int code, const sock_cred &cred) {
         break;
     }
     case +RequestCode::SQLITE_CMD:
-        MagiskD::Get().db_exec(client);
+        daemon.db_exec(client);
         break;
     case +RequestCode::REMOVE_MODULES: {
         int do_reboot = read_int(client);
@@ -162,12 +194,12 @@ static void handle_request_async(int client, int code, const sock_cred &cred) {
         write_int(client, 0);
         close(client);
         if (do_reboot) {
-            MagiskD::Get().reboot();
+            daemon.reboot();
         }
         break;
     }
     case +RequestCode::ZYGISK:
-        MagiskD::Get().zygisk_handler(client);
+        daemon.zygisk_handler(client);
         break;
     default:
         __builtin_unreachable();

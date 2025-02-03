@@ -8,10 +8,11 @@ use crate::get_prop;
 use crate::logging::{magisk_logging, setup_logfile, start_log_daemon};
 use crate::mount::setup_mounts;
 use crate::package::ManagerInfo;
+use crate::su::SuInfo;
 use base::libc::{O_CLOEXEC, O_RDONLY};
 use base::{
-    cstr, error, info, libc, open_fd, BufReadExt, FsPath, FsPathBuf, ResultExt, Utf8CStr,
-    Utf8CStrBufArr,
+    cstr, error, info, libc, open_fd, AtomicArc, BufReadExt, FsPath, FsPathBuf, ResultExt,
+    Utf8CStr, Utf8CStrBufArr,
 };
 use std::fs::File;
 use std::io::BufReader;
@@ -67,6 +68,7 @@ pub struct MagiskD {
     pub zygiskd_sockets: Mutex<(Option<UnixStream>, Option<UnixStream>)>,
     pub zygisk_enabled: AtomicBool,
     pub zygote_start_count: AtomicU32,
+    pub cached_su_info: AtomicArc<SuInfo>,
     sdk_int: i32,
     pub is_emulator: bool,
     is_recovery: bool,
@@ -87,10 +89,6 @@ impl MagiskD {
 
     pub fn sdk_int(&self) -> i32 {
         self.sdk_int
-    }
-
-    pub fn set_module_list(&self, module_list: Vec<ModuleInfo>) {
-        self.module_list.set(module_list).ok();
     }
 
     pub fn app_data_dir(&self) -> &'static Utf8CStr {
@@ -150,7 +148,8 @@ impl MagiskD {
         );
         initialize_denylist();
         setup_mounts();
-        self.handle_modules();
+        let modules = self.handle_modules();
+        self.module_list.set(modules).ok();
 
         false
     }

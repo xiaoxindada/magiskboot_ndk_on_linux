@@ -18,7 +18,6 @@ LOCAL_SRC_FILES := \
     core/applets.cpp \
     core/magisk.cpp \
     core/daemon.cpp \
-    core/socket.cpp \
     core/scripting.cpp \
     core/selinux.cpp \
     core/sqlite.cpp \
@@ -29,7 +28,6 @@ LOCAL_SRC_FILES := \
     core/su/su.cpp \
     core/su/connect.cpp \
     core/su/pts.cpp \
-    core/su/su_daemon.cpp \
     core/zygisk/entry.cpp \
     core/zygisk/module.cpp \
     core/zygisk/hook.cpp \
