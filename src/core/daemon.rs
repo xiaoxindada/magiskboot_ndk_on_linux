@@ -6,7 +6,7 @@ use crate::ffi::{
 };
 use crate::get_prop;
 use crate::logging::{magisk_logging, setup_logfile, start_log_daemon};
-use crate::mount::setup_mounts;
+use crate::mount::{clean_mounts, setup_mounts};
 use crate::package::ManagerInfo;
 use crate::su::SuInfo;
 use base::libc::{O_CLOEXEC, O_RDONLY};
@@ -109,7 +109,7 @@ impl MagiskD {
         let secure_dir = FsPath::from(cstr!(SECURE_DIR));
         if !secure_dir.exists() {
             if self.sdk_int < 24 {
-                secure_dir.mkdir(0o700).log().ok();
+                secure_dir.mkdir(0o700).log_ok();
             } else {
                 error!("* {} is not present, abort", SECURE_DIR);
                 return true;
@@ -137,7 +137,7 @@ impl MagiskD {
             info!("* Safe mode triggered");
             // Disable all modules and zygisk so next boot will be clean
             disable_modules();
-            self.set_db_setting(DbEntryKey::ZygiskConfig, 0).log().ok();
+            self.set_db_setting(DbEntryKey::ZygiskConfig, 0).log_ok();
             return true;
         }
 
@@ -150,6 +150,7 @@ impl MagiskD {
         setup_mounts();
         let modules = self.handle_modules();
         self.module_list.set(modules).ok();
+        clean_mounts();
 
         false
     }
@@ -169,12 +170,12 @@ impl MagiskD {
         info!("** boot-complete triggered");
 
         // Reset the bootloop counter once we have boot-complete
-        self.set_db_setting(DbEntryKey::BootloopCount, 0).log().ok();
+        self.set_db_setting(DbEntryKey::BootloopCount, 0).log_ok();
 
         // At this point it's safe to create the folder
         let secure_dir = FsPath::from(cstr!(SECURE_DIR));
         if !secure_dir.exists() {
-            secure_dir.mkdir(0o700).log().ok();
+            secure_dir.mkdir(0o700).log_ok();
         }
 
         self.ensure_manager();

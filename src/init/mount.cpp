@@ -45,7 +45,7 @@ static void parse_device(devinfo *dev, const char *uevent) {
     });
 }
 
-void MagiskInit::collect_devices() {
+void MagiskInit::collect_devices() const noexcept {
     char path[PATH_MAX];
     devinfo dev{};
     if (auto dir = xopen_dir("/sys/dev/block"); dir) {
@@ -60,10 +60,10 @@ void MagiskInit::collect_devices() {
                 strscpy(dev.dmname, name.data(), sizeof(dev.dmname));
             }
             if (auto it = std::ranges::find_if(config.partition_map, [&](const auto &i) {
-                return i.first == dev.devname;
+                return i.key == dev.devname;
             }); dev.partname[0] == '\0' && it != config.partition_map.end()) {
                 // use androidboot.partition_map as partname fallback.
-                strscpy(dev.partname, it->second.data(), sizeof(dev.partname));
+                strscpy(dev.partname, it->value.data(), sizeof(dev.partname));
             }
             sprintf(path, "/sys/dev/block/%s", entry->d_name);
             xrealpath(path, dev.devpath, sizeof(dev.devpath));
@@ -72,7 +72,7 @@ void MagiskInit::collect_devices() {
     }
 }
 
-dev_t MagiskInit::find_block(const char *partname) {
+uint64_t MagiskInit::find_block(const char *partname) const noexcept {
     if (dev_list.empty())
         collect_devices();
 
@@ -103,7 +103,7 @@ dev_t MagiskInit::find_block(const char *partname) {
     return 0;
 }
 
-void MagiskInit::mount_preinit_dir() {
+void MagiskInit::mount_preinit_dir() const noexcept {
     if (preinit_dev.empty()) return;
     auto dev = find_block(preinit_dev.data());
     if (dev == 0) {
@@ -143,7 +143,7 @@ void MagiskInit::mount_preinit_dir() {
     }
 }
 
-bool MagiskInit::mount_system_root() {
+bool MagiskInit::mount_system_root() noexcept {
     LOGD("Mounting system_root\n");
 
     // there's no /dev in stub cpio
@@ -163,7 +163,7 @@ bool MagiskInit::mount_system_root() {
 
         // Try normal partname
         char sys_part[32];
-        sprintf(sys_part, "system%s", config.slot);
+        sprintf(sys_part, "system%s", config.slot.data());
         dev = find_block(sys_part);
         if (dev > 0)
             goto mount_root;
@@ -210,27 +210,7 @@ mount_root:
     return is_two_stage;
 }
 
-void MagiskInit::exec_init() {
-    // Unmount in reverse order
-    for (auto &p : reversed(mount_list)) {
-        if (xumount2(p.data(), MNT_DETACH) == 0)
-            LOGD("Unmount [%s]\n", p.data());
-    }
-    execve("/init", argv, environ);
-    exit(1);
-}
-
-void MagiskInit::prepare_data() {
-    LOGD("Setup data tmp\n");
-    xmkdir("/data", 0755);
-    xmount("magisk", "/data", "tmpfs", 0, "mode=755");
-
-    cp_afc("/init", REDIR_PATH);
-    cp_afc("/.backup", "/data/.backup");
-    cp_afc("/overlay.d", "/data/overlay.d");
-}
-
-void MagiskInit::setup_tmp(const char *path) {
+void MagiskInit::setup_tmp(const char *path) const noexcept {
     LOGD("Setup Magisk tmp at %s\n", path);
     chdir("/data");
 

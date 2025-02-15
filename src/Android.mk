@@ -63,11 +63,9 @@ LOCAL_STATIC_LIBRARIES := \
     libinit-rs
 
 LOCAL_SRC_FILES := \
-    init/init.cpp \
     init/mount.cpp \
     init/rootdir.cpp \
     init/getinfo.cpp \
-    init/twostage.cpp \
     init/selinux.cpp \
     init/init-rs.cpp
 
@@ -75,6 +73,7 @@ LOCAL_LDFLAGS := -static
 
 ifdef B_CRT0
 LOCAL_STATIC_LIBRARIES += crt0
+LOCAL_LDFLAGS += -Wl,--defsym=vfprintf=tiny_vfprintf
 endif
 
 include $(BUILD_EXECUTABLE)

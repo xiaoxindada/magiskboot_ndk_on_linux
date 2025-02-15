@@ -1,3 +1,11 @@
+use crate::ffi::MagiskInit;
+use base::{
+    cstr, debug, libc,
+    libc::{chdir, chroot, execve, exit, mount, umount2, MNT_DETACH, MS_MOVE},
+    parse_mount_info, raw_cstr, Directory, FsPath, LibcReturn, LoggedResult, ResultExt, StringExt,
+    Utf8CStr,
+};
+use cxx::CxxString;
 use std::{
     collections::BTreeSet,
     ops::Bound::{Excluded, Unbounded},
@@ -5,13 +13,9 @@ use std::{
     ptr::null as nullptr,
 };
 
-use cxx::CxxString;
-
-use base::{
-    cstr, debug,
-    libc::{chdir, chroot, mount, MS_MOVE},
-    parse_mount_info, raw_cstr, Directory, LibcReturn, LoggedResult, StringExt, Utf8CStr,
-};
+extern "C" {
+    static environ: *const *mut libc::c_char;
+}
 
 pub fn switch_root(path: &Utf8CStr) {
     let res: LoggedResult<()> = try {
@@ -67,4 +71,43 @@ pub fn is_device_mounted(dev: u64, target: Pin<&mut CxxString>) -> bool {
         }
     }
     false
+}
+
+impl MagiskInit {
+    pub(crate) fn prepare_data(&self) {
+        debug!("Setup data tmp");
+        FsPath::from(cstr!("/data")).mkdir(0o755).log_ok();
+        unsafe {
+            mount(
+                raw_cstr!("magisk"),
+                raw_cstr!("/data"),
+                raw_cstr!("tmpfs"),
+                0,
+                raw_cstr!("mode=755").cast(),
+            )
+        }.as_os_err().log_ok();
+
+        FsPath::from(cstr!("/init")).copy_to(FsPath::from(cstr!("/data/magiskinit"))).log_ok();
+        FsPath::from(cstr!("/.backup")).copy_to(FsPath::from(cstr!("/data/.backup"))).log_ok();
+        FsPath::from(cstr!("/overlay.d")).copy_to(FsPath::from(cstr!("/data/overlay.d"))).log_ok();
+    }
+
+    pub(crate) fn exec_init(&self) {
+        unsafe {
+            for p in self.mount_list.iter().rev() {
+                if umount2(p.as_ptr().cast(), MNT_DETACH)
+                    .as_os_err()
+                    .log()
+                    .is_ok()
+                {
+                    debug!("Unmount [{}]", p);
+                }
+            }
+            execve(raw_cstr!("/init"), self.argv.cast(), environ.cast())
+                .as_os_err()
+                .log()
+                .ok();
+            exit(1);
+        }
+    }
 }

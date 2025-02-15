@@ -7,34 +7,11 @@
 
 using namespace std;
 
-void MagiskInit::patch_sepolicy(const char *in, const char *out) {
-    LOGD("Patching monolithic policy\n");
-    auto sepol = SePolicy::from_file(in);
-
-    sepol.magisk_rules();
-
-    // Custom rules
-    auto rule = "/data/" PREINITMIRR "/sepolicy.rule";
-    if (xaccess(rule, R_OK) == 0) {
-        LOGD("Loading custom sepolicy patch: [%s]\n", rule);
-        sepol.load_rule_file(rule);
-    }
-
-    LOGD("Dumping sepolicy to: [%s]\n", out);
-    sepol.to_file(out);
-
-    // Remove OnePlus stupid debug sepolicy and use our own
-    if (access("/sepolicy_debug", F_OK) == 0) {
-        unlink("/sepolicy_debug");
-        link("/sepolicy", "/sepolicy_debug");
-    }
-}
-
 #define MOCK_COMPAT    SELINUXMOCK "/compatible"
 #define MOCK_LOAD      SELINUXMOCK "/load"
 #define MOCK_ENFORCE   SELINUXMOCK "/enforce"
 
-bool MagiskInit::hijack_sepolicy() {
+bool MagiskInit::hijack_sepolicy() noexcept {
     xmkdir(SELINUXMOCK, 0);
 
     if (access("/system/bin/init", F_OK) == 0) {
@@ -64,7 +41,7 @@ bool MagiskInit::hijack_sepolicy() {
         // This only happens on Android 8.0 - 9.0
 
         char buf[4096];
-        ssprintf(buf, sizeof(buf), "%s/fstab/compatible", config.dt_dir);
+        ssprintf(buf, sizeof(buf), "%s/fstab/compatible", config.dt_dir.data());
         dt_compat = full_read(buf);
         if (dt_compat.empty()) {
             // Device does not do early mount and uses monolithic policy
@@ -76,10 +53,12 @@ bool MagiskInit::hijack_sepolicy() {
 
         LOGD("Hijack [%s]\n", buf);
 
+        decltype(mount_list) new_mount_list;
         // Preserve sysfs and procfs for hijacking
-        mount_list.erase(std::remove_if(
-                mount_list.begin(), mount_list.end(),
-                [](const string &s) { return s == "/proc" || s == "/sys"; }), mount_list.end());
+        for (const auto &s: mount_list)
+            if (s != "/proc" && s != "/sys")
+                new_mount_list.emplace_back(s);
+        new_mount_list.swap(mount_list);
 
         mkfifo(MOCK_COMPAT, 0444);
         xmount(MOCK_COMPAT, buf, nullptr, MS_BIND, nullptr);
@@ -106,7 +85,7 @@ bool MagiskInit::hijack_sepolicy() {
         int fd = xopen(MOCK_COMPAT, O_WRONLY);
 
         char buf[4096];
-        ssprintf(buf, sizeof(buf), "%s/fstab/compatible", config.dt_dir);
+        ssprintf(buf, sizeof(buf), "%s/fstab/compatible", config.dt_dir.data());
         xumount2(buf, MNT_DETACH);
 
         hijack();
