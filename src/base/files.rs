@@ -1,7 +1,6 @@
 use crate::cxx_extern::readlinkat_for_cxx;
 use crate::{
     cstr, errno, error, FsPath, FsPathBuf, LibcReturn, Utf8CStr, Utf8CStrBuf, Utf8CStrBufArr,
-    Utf8CStrWrite,
 };
 use bytemuck::{bytes_of, bytes_of_mut, Pod};
 use libc::{
@@ -39,8 +38,7 @@ macro_rules! open_fd {
 }
 
 pub fn fd_path(fd: RawFd, buf: &mut dyn Utf8CStrBuf) -> io::Result<()> {
-    let mut arr = Utf8CStrBufArr::<40>::new();
-    let path = FsPathBuf::new(&mut arr).join("/proc/self/fd").join_fmt(fd);
+    let path = FsPathBuf::default().join("/proc/self/fd").join_fmt(fd);
     path.read_link(buf)
 }
 
@@ -622,9 +620,9 @@ impl FsPath {
         buf.clear();
         unsafe {
             let r = libc::readlink(self.as_ptr(), buf.as_mut_ptr().cast(), buf.capacity() - 1)
-                .check_os_err()? as usize;
-            *buf.mut_buf().get_unchecked_mut(r) = b'\0';
-            buf.set_len(r);
+                .check_os_err()? as isize;
+            *(buf.as_mut_ptr().offset(r) as *mut u8) = b'\0';
+            buf.set_len(r as usize);
         }
         Ok(())
     }
@@ -791,7 +789,7 @@ impl FsPath {
         unsafe { libc::symlink(self.as_ptr(), path.as_ptr()).as_os_err() }
     }
 
-    pub fn parent(&self, buf: &mut dyn Utf8CStrWrite) -> bool {
+    pub fn parent(&self, buf: &mut dyn Utf8CStrBuf) -> bool {
         buf.clear();
         if let Some(parent) = Path::new(self.as_str()).parent() {
             let bytes = parent.as_os_str().as_bytes();
