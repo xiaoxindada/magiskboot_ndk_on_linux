@@ -1,7 +1,7 @@
 use crate::ffi::MagiskInit;
 use base::libc::O_RDONLY;
 use base::{
-    cstr, debug, libc, BufReadExt, Directory, FsPath, LibcReturn, LoggedResult, ResultExt,
+    cstr_buf, debug, libc, path, BufReadExt, Directory, LibcReturn, LoggedResult, ResultExt,
     Utf8CStr, Utf8CStrBuf, Utf8CStrBufArr, WalkResult,
 };
 use std::io::BufReader;
@@ -48,8 +48,8 @@ pub fn collect_overlay_contexts(src: &Utf8CStr) {
     OVERLAY_ATTRS
         .get_or_try_init(|| -> LoggedResult<_> {
             let mut contexts = vec![];
-            let mut con = Utf8CStrBufArr::default();
-            let mut path = Utf8CStrBufArr::default();
+            let mut con = cstr_buf::default();
+            let mut path = cstr_buf::default();
             let mut src = Directory::open(src)?;
             src.path(&mut path)?;
             let src_len = path.len();
@@ -116,7 +116,7 @@ on property:init.svc.zygote=stopped
 
 impl MagiskInit {
     pub(crate) fn parse_config_file(&mut self) {
-        if let Ok(fd) = FsPath::from(cstr!("/data/.backup/.magisk")).open(O_RDONLY) {
+        if let Ok(fd) = path!("/data/.backup/.magisk").open(O_RDONLY) {
             let mut reader = BufReader::new(fd);
             reader.foreach_props(|key, val| {
                 if key == "PREINITDEVICE" {

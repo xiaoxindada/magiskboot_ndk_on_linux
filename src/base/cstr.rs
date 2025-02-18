@@ -22,6 +22,8 @@ use crate::slice_from_ptr_mut;
 // Utf8CStrBufRef: reference to a fixed sized buffer
 // Utf8CStrBufArr<N>: fixed sized buffer allocated on the stack
 //
+// For easier usage, please use the helper functions in cstr_buf.
+//
 // In most cases, these are the types being used
 //
 // &Utf8CStr: whenever a printable null terminated string is needed
@@ -32,6 +34,37 @@ use crate::slice_from_ptr_mut;
 //
 // All types dereferences to &Utf8CStr.
 // Utf8CString, Utf8CStrBufRef, and Utf8CStrBufArr<N> implements Utf8CStrBuf.
+
+// Public helper functions
+
+pub mod cstr_buf {
+    use super::{Utf8CStrBufArr, Utf8CStrBufRef, Utf8CString};
+
+    #[inline(always)]
+    pub fn with_capacity(capacity: usize) -> Utf8CString {
+        Utf8CString::with_capacity(capacity)
+    }
+
+    #[inline(always)]
+    pub fn default() -> Utf8CStrBufArr<4096> {
+        Utf8CStrBufArr::default()
+    }
+
+    #[inline(always)]
+    pub fn new<const N: usize>() -> Utf8CStrBufArr<N> {
+        Utf8CStrBufArr::new()
+    }
+
+    #[inline(always)]
+    pub fn wrap(buf: &mut [u8]) -> Utf8CStrBufRef {
+        Utf8CStrBufRef::from(buf)
+    }
+
+    #[inline(always)]
+    pub unsafe fn wrap_ptr<'a>(buf: *mut u8, len: usize) -> Utf8CStrBufRef<'a> {
+        Utf8CStrBufRef::from_ptr(buf, len)
+    }
+}
 
 // Trait definitions
 
@@ -319,13 +352,6 @@ impl Utf8CStr {
         Self::from_cstr(CStr::from_bytes_with_nul(buf)?)
     }
 
-    pub fn from_bytes_mut(buf: &mut [u8]) -> Result<&mut Utf8CStr, StrErr> {
-        CStr::from_bytes_with_nul(buf)?;
-        str::from_utf8(buf)?;
-        // Both condition checked
-        unsafe { Ok(mem::transmute::<&mut [u8], &mut Utf8CStr>(buf)) }
-    }
-
     pub fn from_string(s: &mut String) -> &mut Utf8CStr {
         let buf = s.nul_terminate();
         // SAFETY: the null byte is explicitly added to the buffer
@@ -338,7 +364,7 @@ impl Utf8CStr {
     }
 
     #[inline(always)]
-    pub unsafe fn from_bytes_unchecked_mut(buf: &mut [u8]) -> &mut Utf8CStr {
+    unsafe fn from_bytes_unchecked_mut(buf: &mut [u8]) -> &mut Utf8CStr {
         mem::transmute(buf)
     }
 
@@ -492,13 +518,13 @@ impl FsPathBuf<0> {
 
 impl Default for FsPathBuf<4096> {
     fn default() -> Self {
-        FsPathBuf(Utf8CStrBufOwned::Fixed(Utf8CStrBufArr::default()))
+        FsPathBuf(Utf8CStrBufOwned::Fixed(cstr_buf::default()))
     }
 }
 
 impl<const N: usize> FsPathBuf<N> {
     pub fn new() -> Self {
-        FsPathBuf(Utf8CStrBufOwned::Fixed(Utf8CStrBufArr::<N>::new()))
+        FsPathBuf(Utf8CStrBufOwned::Fixed(cstr_buf::new::<N>()))
     }
 
     pub fn clear(&mut self) {
@@ -704,26 +730,27 @@ impl_str_buf_with_slice!(
     (Utf8CStrBufArr<N>, const N: usize)
 );
 
-// The cstr! macro is copied from https://github.com/bytecodealliance/rustix/blob/main/src/cstr.rs
-
 #[macro_export]
 macro_rules! cstr {
-    ($($str:tt)*) => {{
-        assert!(
-            !($($str)*).bytes().any(|b| b == b'\0'),
-            "cstr argument contains embedded NUL bytes",
-        );
+    ($str:expr) => {{
+        const NULL_STR: &str = $crate::const_format::concatcp!($str, "\0");
         #[allow(unused_unsafe)]
         unsafe {
-            $crate::Utf8CStr::from_bytes_unchecked($crate::const_format::concatcp!($($str)*, "\0")
-                .as_bytes())
+            $crate::Utf8CStr::from_bytes_unchecked(NULL_STR.as_bytes())
         }
     }};
 }
 
 #[macro_export]
 macro_rules! raw_cstr {
-    ($($str:tt)*) => {{
-        $crate::cstr!($($str)*).as_ptr()
+    ($str:expr) => {{
+        $crate::cstr!($str).as_ptr()
+    }};
+}
+
+#[macro_export]
+macro_rules! path {
+    ($str:expr) => {{
+        $crate::FsPath::from($crate::cstr!($str))
     }};
 }
