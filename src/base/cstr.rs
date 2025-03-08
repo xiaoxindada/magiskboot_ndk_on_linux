@@ -62,7 +62,7 @@ pub mod cstr_buf {
 
     #[inline(always)]
     pub unsafe fn wrap_ptr<'a>(buf: *mut u8, len: usize) -> Utf8CStrBufRef<'a> {
-        Utf8CStrBufRef::from_ptr(buf, len)
+        unsafe { Utf8CStrBufRef::from_ptr(buf, len) }
     }
 }
 
@@ -232,7 +232,9 @@ impl Utf8CStrBuf for Utf8CString {
     }
 
     unsafe fn set_len(&mut self, len: usize) {
-        self.0.as_mut_vec().set_len(len);
+        unsafe {
+            self.0.as_mut_vec().set_len(len);
+        }
     }
 
     fn push_str(&mut self, s: &str) -> usize {
@@ -277,7 +279,7 @@ pub struct Utf8CStrBufRef<'a> {
 
 impl<'a> Utf8CStrBufRef<'a> {
     pub unsafe fn from_ptr(buf: *mut u8, len: usize) -> Utf8CStrBufRef<'a> {
-        Self::from(slice_from_ptr_mut(buf, len))
+        unsafe { Self::from(slice_from_ptr_mut(buf, len)) }
     }
 }
 
@@ -366,12 +368,12 @@ impl Utf8CStr {
 
     #[inline(always)]
     pub const unsafe fn from_bytes_unchecked(buf: &[u8]) -> &Utf8CStr {
-        mem::transmute(buf)
+        unsafe { mem::transmute(buf) }
     }
 
     #[inline(always)]
     unsafe fn from_bytes_unchecked_mut(buf: &mut [u8]) -> &mut Utf8CStr {
-        mem::transmute(buf)
+        unsafe { mem::transmute(buf) }
     }
 
     pub unsafe fn from_ptr<'a>(ptr: *const c_char) -> Result<&'a Utf8CStr, StrErr> {
@@ -382,8 +384,10 @@ impl Utf8CStr {
     }
 
     pub unsafe fn from_ptr_unchecked<'a>(ptr: *const c_char) -> &'a Utf8CStr {
-        let cstr = CStr::from_ptr(ptr);
-        Self::from_bytes_unchecked(cstr.to_bytes_with_nul())
+        unsafe {
+            let cstr = CStr::from_ptr(ptr);
+            Self::from_bytes_unchecked(cstr.to_bytes_with_nul())
+        }
     }
 
     #[inline(always)]
@@ -491,6 +495,25 @@ impl Deref for FsPath {
 }
 
 impl DerefMut for FsPath {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Utf8CStr {
+        &mut self.0
+    }
+}
+
+#[repr(transparent)]
+pub struct FsPathFollow(Utf8CStr);
+
+impl Deref for FsPathFollow {
+    type Target = Utf8CStr;
+
+    #[inline(always)]
+    fn deref(&self) -> &Utf8CStr {
+        &self.0
+    }
+}
+
+impl DerefMut for FsPathFollow {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Utf8CStr {
         &mut self.0
@@ -663,6 +686,7 @@ macro_rules! impl_str {
 impl_str!(
     (Utf8CStr,)
     (FsPath,)
+    (FsPathFollow,)
     (FsPathBuf<N>, const N: usize)
     (Utf8CStrBufRef<'_>,)
     (Utf8CStrBufArr<N>, const N: usize)
