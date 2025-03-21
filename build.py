@@ -37,9 +37,11 @@ def parse_props(file):
 
 
 def load_config():
+    config = {}
     for key, value in parse_props("magisk_config.prop").items():
         if key.startswith("magisk."):
             config[key[7:]] = value
+        return config
 
 
 def error(str):
@@ -146,12 +148,11 @@ native_gen_path = native_out / "generated"
 rust_out = native_out / "rust"
 
 # Global vars
-config = {}
+config = load_config()
 archs = {"armeabi-v7a", "x86", "arm64-v8a", "x86_64"}
 triples = map(support_abis.get, archs)
 build_abis = dict(zip(archs, triples))
 
-load_config()
 
 def cp_output(source, target):
     system(f"cp -af {source} {target}")
