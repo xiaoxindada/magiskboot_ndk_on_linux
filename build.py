@@ -41,7 +41,7 @@ def load_config():
     for key, value in parse_props("magisk_config.prop").items():
         if key.startswith("magisk."):
             config[key[7:]] = value
-        return config
+    return config
 
 
 def error(str):
