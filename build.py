@@ -163,10 +163,14 @@ build_abis = dict(zip(archs, triples))
 
 
 def write_if_diff(file_name, text):
-    rm(file_name)
-    with open(file_name, "w") as f:
-        print("Write %s" % file_name)
-        f.write(text)
+    do_write = True
+    if file_name.exists():
+        with open(file_name, "r") as f:
+            orig = f.read()
+        do_write = orig != text
+    if do_write:
+        with open(file_name, "w") as f:
+            f.write(text)
 
 
 def dump_flag_header():
@@ -202,13 +206,14 @@ def build_native():
     targets = support_targets
     print("* Building: " + " ".join(targets))
 
-    # if sccache := shutil.which("sccache"):
-    #     os.environ["RUSTC_WRAPPER"] = sccache
-    #     os.environ["NDK_CCACHE"] = sccache
-    #     os.environ["CARGO_INCREMENTAL"] = "0"
-    # if ccache := shutil.which("ccache"):
-    #     os.environ["NDK_CCACHE"] = ccache
+    if sccache := shutil.which("sccache"):
+        os.environ["RUSTC_WRAPPER"] = sccache
+        os.environ["NDK_CCACHE"] = sccache
+        os.environ["CARGO_INCREMENTAL"] = "0"
+    if ccache := shutil.which("ccache"):
+        os.environ["NDK_CCACHE"] = ccache
 
+    dump_flag_header()
     build_rust_src(targets)
     build_cpp_src(targets)
 
@@ -328,8 +333,8 @@ def setup_ndk():
 
 def run_ndk_build(cmds: list):
     os.chdir(Path(LOCALDIR))
-    cmds.append(f"NDK_PROJECT_PATH={LOCALDIR}")
-    cmds.append(f"NDK_APPLICATION_MK={LOCALDIR}/src/Application.mk")
+    cmds.append("NDK_PROJECT_PATH=.")
+    cmds.append("NDK_APPLICATION_MK=src/Application.mk")
     cmds.append(f"APP_ABI={' '.join(build_abis.keys())}")
     cmds.append(f"-j{cpu_count}")
     if not release:
@@ -348,9 +353,6 @@ def move_gen_bins():
             target = out_dir / source.name
             mv(source, target)
             rm(Path(out_dir, f"lib{source.name}-rs.a"))
-
-    rm_rf(rust_out)
-    rm_rf(native_gen_path)
 
     with open(Path(native_out, "magisk_version.txt"), "w") as f:
         f.write(f"magisk.versionCode={config['versionCode']}\n")
@@ -406,8 +408,6 @@ if __name__ == "__main__":
 
     if args.setup_ndk:
         setup_ndk()
-        print("headerrrrrrrrrrrrr")
-        dump_flag_header()
 
     if args.build_binary:
         build_native()
