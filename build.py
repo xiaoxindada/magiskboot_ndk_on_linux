@@ -164,15 +164,9 @@ build_abis = dict(zip(archs, triples))
 
 def write_if_diff(file_name, text):
     rm(file_name)
-    do_write = True
-    if op.exists(file_name):
-        with open(file_name, "r") as f:
-            orig = f.read()
-        do_write = orig != text
-    if do_write:
-        with open(file_name, "w") as f:
-            print("Write %s" % file_name)
-            f.write(text)
+    with open(file_name, "w") as f:
+        print("Write %s" % file_name)
+        f.write(text)
 
 
 def dump_flag_header():
@@ -415,6 +409,7 @@ if __name__ == "__main__":
         setup_ndk()
 
     if args.build_binary:
+        print("headerrrrrrrrrrrrr")
         dump_flag_header()
         build_native()
 
