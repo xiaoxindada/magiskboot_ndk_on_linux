@@ -407,10 +407,10 @@ if __name__ == "__main__":
 
     if args.setup_ndk:
         setup_ndk()
-
-    if args.build_binary:
         print("headerrrrrrrrrrrrr")
         dump_flag_header()
+        
+    if args.build_binary:
         build_native()
 
     if args.update_code:
