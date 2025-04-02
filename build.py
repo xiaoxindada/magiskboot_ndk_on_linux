@@ -331,7 +331,7 @@ def run_ndk_build(cmds: list):
     cmds.append("NDK_PROJECT_PATH=.")
     cmds.append("NDK_APPLICATION_MK=src/Application.mk")
     cmds.append(f"APP_ABI={' '.join(build_abis.keys())}")
-    # cmds.append(f"-j{cpu_count}")
+    cmds.append(f"-j{cpu_count}")
     if not release:
         cmds.append("MAGISK_DEBUG=1")
     proc = execv([ndk_build, *cmds])
@@ -360,7 +360,7 @@ def run_cargo(cmds):
     env = os.environ.copy()
     env["PATH"] = f'{rust_bin}{os.pathsep}{env["PATH"]}'
     env["CARGO_BUILD_RUSTC"] = str(rust_bin / f"rustc{EXE_EXT}")
-    # env["CARGO_BUILD_RUSTFLAGS"] = f"-Z threads={cpu_count}"
+    env["CARGO_BUILD_RUSTFLAGS"] = f"-Z threads={cpu_count}"
     return execv(["cargo", *cmds], env)
 
 
@@ -386,7 +386,6 @@ def update_code():
 
     # Fix path defined
     sed_i('../../../tools/keys/', '../../tools/keys/', Path('Magisk/native/src/boot/sign.rs'))
-    sed_i('../../out/generated/flags.rs', '../out/generated/flags.rs', Path('Magisk/native/src/include/consts.rs'))
 
     mv("Magisk/native/src", "src")
     mv("Magisk/tools", "tools")
@@ -409,7 +408,7 @@ if __name__ == "__main__":
         setup_ndk()
         print("headerrrrrrrrrrrrr")
         dump_flag_header()
-        
+
     if args.build_binary:
         build_native()
 
