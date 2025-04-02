@@ -3,12 +3,12 @@
 > 使用 [ondk](https://github.com/topjohnwu/ondk) 编译  
 
 ## 克隆源码:
-> git clone --recurse-submodules https://github.com/xiaoxindada/magiskboot_ndk_on_linux.git  
-> cd magiskboot_ndk_on_linux  
+> git clone --recurse-submodules https://github.com/xiaoxindada/magisk_bins_ndk.git  
+> cd magisk_bins_ndk  
 
 ## 编译:  
->  pip3 install wget  
->  python3 ./build.py --build_binary  
+>  python3 build.py --setup_ndk  
+>  python3 build.py --build_binary  
 
 ## 生成物路径:
 > out  
