@@ -337,7 +337,7 @@ def run_ndk_build(cmds: list):
     cmds.append("NDK_PROJECT_PATH=.")
     cmds.append("NDK_APPLICATION_MK=src/Application.mk")
     cmds.append(f"APP_ABI={' '.join(build_abis.keys())}")
-    cmds.append(f"-j{cpu_count}")
+    # cmds.append(f"-j{cpu_count}")
     if not release:
         cmds.append("MAGISK_DEBUG=1")
     proc = execv([ndk_build, *cmds])
