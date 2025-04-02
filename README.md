@@ -7,8 +7,8 @@
 > cd magiskboot_ndk_on_linux  
 
 ## 编译:  
->  python3 ./build.py --setup_ndk  
->  python3 ./build.py --build_binary  
+>  python3 build.py --setup_ndk  
+>  python3 build.py --build_binary  
 
 ## 生成物路径:
 > out  

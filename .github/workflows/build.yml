@@ -32,7 +32,7 @@ jobs:
       - name: Strart build
         run: |
           # echo "MAGISK_VERSION=$(cat magisk_config.prop | grep "magisk.versionCode=" | cut -d '=' -f 2)" >> $GITHUB_ENV
-          python3 ./build.py --build_binary
+          python3 build.py --build_binary
           ls -al out/**
 
       - name: Compress out

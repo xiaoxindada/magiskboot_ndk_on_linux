@@ -5,6 +5,7 @@ import glob
 import multiprocessing
 import os
 from pathlib import Path
+import platform
 import sys
 import os.path as op
 import shutil
@@ -12,7 +13,6 @@ import stat
 import subprocess
 import tarfile
 import textwrap
-import time
 import urllib.request
 
 # Environment checks
@@ -114,8 +114,11 @@ def cmd_out(cmd):
         .decode("utf-8")
     )
 
+
 def sed_i(originStr, targetStr, file):
-    with open(file, "r", encoding="utf-8") as i, open(f"{file}_tmp", "w", encoding="utf-8") as o:
+    with open(file, "r", encoding="utf-8") as i, open(
+        f"{file}_tmp", "w", encoding="utf-8"
+    ) as o:
         for line in i.readlines():
             new_line = line
             if originStr in line:
@@ -126,7 +129,7 @@ def sed_i(originStr, targetStr, file):
 
 LOCALDIR = op.realpath(".")
 cpu_count = multiprocessing.cpu_count()
-os_name = "linux"
+os_name = platform.system().lower()
 release = True
 
 # Common constants
@@ -154,6 +157,7 @@ rust_bin = ndk_root / "toolchains" / "rust" / "bin"
 llvm_bin = ndk_root / "toolchains" / "llvm" / "prebuilt" / f"{os_name}-x86_64" / "bin"
 native_gen_path = native_out / "generated"
 rust_out = native_out / "rust"
+cargo = ndk_root / "toolchains" / "rust" / "bin" / f"cargo{EXE_EXT}"
 
 # Global vars
 config = load_config()
@@ -310,7 +314,7 @@ def setup_ndk():
     ndk_archive = url.split("/")[-1]
     ondk_path = Path(LOCALDIR, f"ondk-{ndk_ver}")
 
-    if not op.isfile(ndk_archive):
+    if not op.isfile(ndk_archive) and not op.exists(ndk_root):
         print(f"Downloading and extracting {ndk_archive}")
         with urllib.request.urlopen(url) as response:
             with tarfile.open(mode="r|xz", fileobj=response) as tar:
@@ -321,14 +325,13 @@ def setup_ndk():
     else:
         print(f"Extracting {ndk_archive}")
         with tarfile.open(ndk_archive, mode="r|xz") as tar:
-                if hasattr(tarfile, "data_filter"):
-                    tar.extractall(LOCALDIR, filter="tar")
-                else:
-                    tar.extractall(LOCALDIR)
-    
-    if op.exists(ondk_path):
-        rm_rf(ndk_root)
-        mv(ondk_path, ndk_root)
+            if hasattr(tarfile, "data_filter"):
+                tar.extractall(LOCALDIR, filter="tar")
+            else:
+                tar.extractall(LOCALDIR)
+
+    rm_rf(ndk_root)
+    mv(ondk_path, ndk_root)
 
 
 def run_ndk_build(cmds: list):
@@ -363,7 +366,7 @@ def run_cargo(cmds):
     env["PATH"] = f'{rust_bin}{os.pathsep}{env["PATH"]}'
     env["CARGO_BUILD_RUSTC"] = str(rust_bin / f"rustc{EXE_EXT}")
     env["CARGO_BUILD_RUSTFLAGS"] = f"-Z threads={cpu_count}"
-    return execv(["cargo", *cmds], env)
+    return execv([cargo, *cmds], env)
 
 
 def update_code():
@@ -381,16 +384,21 @@ def update_code():
 
     # Generate magisk_config.prop
     magisk_version = cmd_out(f"cd Magisk && git rev-parse --short=8 HEAD && cd ..")
-    with open(Path('Magisk/gradle.properties',), 'r', encoding='utf-8') as i, open(Path('magisk_config.prop'), 'w', encoding='utf-8') as o:  
-        for line in i.readlines()[-4:]:
-            o.write(line)
-        o.write(f"magisk.version={magisk_version}")
+    with open(Path("Magisk", "gradle.properties"), "r", encoding="utf-8") as i:
+        with open(Path("magisk_config.prop"), "w", encoding="utf-8") as o:
+            for line in i.readlines()[-4:]:
+                o.write(line)
+            o.write(f"magisk.version={magisk_version}")
 
     # Fix path defined
-    sed_i('../../../tools/keys/', '../../tools/keys/', Path('Magisk/native/src/boot/sign.rs'))
+    sed_i(
+        "../../../tools/keys/",
+        "../../tools/keys/",
+        Path("Magisk", "native", "src", "boot", "sign.rs"),
+    )
 
-    mv("Magisk/native/src", "src")
-    mv("Magisk/tools", "tools")
+    mv(Path("Magisk", "native", "src"), "src")
+    mv("Magisk", "tools", "tools")
     rm_rf("Magisk")
 
 
