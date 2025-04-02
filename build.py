@@ -216,7 +216,7 @@ def build_native():
 
     dump_flag_header()
     # build_rust_src(targets)
-    build_cpp_src(targets)
+    # build_cpp_src(targets)
 
 
 def build_rust_src(targets: set):
