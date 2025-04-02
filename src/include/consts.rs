@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use base::const_format::concatcp;
 
-#[path = "../out/generated/flags.rs"]
+#[path = "../../out/generated/flags.rs"]
 mod flags;
 
 // versions
