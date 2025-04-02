@@ -20,23 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clone repo
-        run: |
-          git clone --recurse-submodules https://github.com/xiaoxindada/magiskboot_ndk_on_linux.git magiskboot
-
-      - name: Setup environment
-        run: |
-          sudo apt-get install -y git
-
       - name: Update source
         run: |
-          cd $GITHUB_WORKSPACE/magiskboot
-          pip3 install wget
-          python3 ./build.py --update_code
+          python3 build.py --update_code
 
       - name: Create commit and push
         run: |
-          cd $GITHUB_WORKSPACE/magiskboot
           UPDATE_ETC_UTC_TIME=$(date +%Y-%m-%d-%H:%M)  # Etc/UTC timezone
           sudo timedatectl set-timezone 'Asia/Shanghai'
           UPDATE_SHANGHAI_TIME=$(date +%Y-%m-%d-%H:%M)
@@ -46,5 +35,5 @@ jobs:
           git commit -sm "Update code date: Asia/Shanghai: $UPDATE_SHANGHAI_TIME
           > Etc/UTC: $UPDATE_ETC_UTC_TIME"
           git remote rm origin
-          git remote add origin https://xiaoxindada:${{ secrets.GITHUB_TOKEN }}@github.com/xiaoxindada/magiskboot_ndk_on_linux.git
+          git remote add origin https://xiaoxindada:${{ secrets.GITHUB_TOKEN }}@github.com/xiaoxindada/magisk_bins_ndk.git
           git push origin main
