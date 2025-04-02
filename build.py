@@ -328,8 +328,8 @@ def setup_ndk():
 
 def run_ndk_build(cmds: list):
     os.chdir(Path(LOCALDIR))
-    cmds.append("NDK_PROJECT_PATH=.")
-    cmds.append("NDK_APPLICATION_MK=src/Application.mk")
+    cmds.append(f"NDK_PROJECT_PATH={LOCALDIR}")
+    cmds.append(f"NDK_APPLICATION_MK={LOCALDIR}/src/Application.mk")
     cmds.append(f"APP_ABI={' '.join(build_abis.keys())}")
     cmds.append(f"-j{cpu_count}")
     if not release:
