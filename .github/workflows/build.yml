@@ -25,28 +25,25 @@ jobs:
         with:
           python-version: "3.8.x"
 
-      - name: Clone repo
+      - name: Setup ndk
         run: |
-          git clone --recurse-submodules https://github.com/xiaoxindada/magiskboot_ndk_on_linux.git magiskboot
+          python3 ./build.py --setup_ndk
 
       - name: Strart build
         run: |
-          cd $GITHUB_WORKSPACE/magiskboot
-          echo "MAGISK_VERSION=$(cat magisk_config.prop | grep "magisk.versionCode=" | cut -d '=' -f 2)" >> $GITHUB_ENV
-          pip3 install wget
-          python3 ./build.py --build_binary
+          # echo "MAGISK_VERSION=$(cat magisk_config.prop | grep "magisk.versionCode=" | cut -d '=' -f 2)" >> $GITHUB_ENV
+          python3 build.py --build_binary
           ls -al out/**
 
       - name: Compress out
         run: |
-          cd $GITHUB_WORKSPACE/magiskboot
           7za a magiskboot.7z out/*
 
       - name: Upload output to GH-Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "${{ github.workspace }}/magiskboot/magiskboot.7z"
+          artifacts: "magiskboot.7z"
           name: "Magiskboot-${{ env.MAGISK_VERSION }}"
           tag: "Magiskboot-${{ env.MAGISK_VERSION }}-${{ github.run_number }}"
-          bodyFile: "${{ github.workspace}}/magiskboot/out/magisk_version.txt"
+          bodyFile: "out/magisk_version.txt"
           token: ${{ secrets.GITHUB_TOKEN }}
