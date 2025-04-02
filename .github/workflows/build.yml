@@ -26,19 +26,16 @@ jobs:
           python-version: "3.8.x"
 
       - name: Setup ndk
-        working-directory: ${{ github.workspace }}
         run: |
           python3 ./build.py --setup_ndk
 
       - name: Strart build
-        working-directory: ${{ github.workspace }}
         run: |
           # echo "MAGISK_VERSION=$(cat magisk_config.prop | grep "magisk.versionCode=" | cut -d '=' -f 2)" >> $GITHUB_ENV
           python3 ./build.py --build_binary
           ls -al out/**
 
       - name: Compress out
-        working-directory: ${{ github.workspace }}
         run: |
           7za a magiskboot.7z out/*
 
