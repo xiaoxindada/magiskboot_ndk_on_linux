@@ -42,11 +42,11 @@ jobs:
         run: |
           7za a magiskboot.7z out/*
 
-      # - name: Upload output to GH-Release
-      #   uses: ncipollo/release-action@v1
-      #   with:
-      #     artifacts: "magiskboot.7z"
-      #     name: "Magiskboot-${{ env.MAGISK_VERSION }}"
-      #     tag: "Magiskboot-${{ env.MAGISK_VERSION }}-${{ github.run_number }}"
-      #     bodyFile: "out/magisk_version.txt"
-      #     token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload output to GH-Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "magiskboot.7z"
+          name: "Magiskboot-${{ env.MAGISK_VERSION }}"
+          tag: "Magiskboot-${{ env.MAGISK_VERSION }}-${{ github.run_number }}"
+          bodyFile: "out/magisk_version.txt"
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -215,8 +215,6 @@ def build_native():
     # if ccache := shutil.which("ccache"):
     #     os.environ["NDK_CCACHE"] = ccache
 
-    dump_flag_header()
-    time.sleep(3)
     build_rust_src(targets)
     build_cpp_src(targets)
 
@@ -417,6 +415,7 @@ if __name__ == "__main__":
         setup_ndk()
 
     if args.build_binary:
+        dump_flag_header()
         build_native()
 
     if args.update_code:
