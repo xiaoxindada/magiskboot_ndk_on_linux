@@ -12,6 +12,7 @@ import stat
 import subprocess
 import tarfile
 import textwrap
+import time
 import urllib.request
 
 # Environment checks
@@ -215,8 +216,9 @@ def build_native():
     #     os.environ["NDK_CCACHE"] = ccache
 
     dump_flag_header()
-    # build_rust_src(targets)
-    # build_cpp_src(targets)
+    time.sleep(3)
+    build_rust_src(targets)
+    build_cpp_src(targets)
 
 
 def build_rust_src(targets: set):
