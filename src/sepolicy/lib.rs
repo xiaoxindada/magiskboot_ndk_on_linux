@@ -2,11 +2,7 @@
 #![feature(try_blocks)]
 
 pub use base;
-use base::libc::{O_CLOEXEC, O_RDONLY};
-use base::{BufReadExt, FsPath, LoggedResult, Utf8CStr};
-use cxx::CxxString;
 use std::fmt::Write;
-use std::io::{BufRead, BufReader, Cursor};
 
 use crate::ffi::SePolicy;
 
@@ -84,37 +80,12 @@ pub mod ffi {
     }
 
     extern "Rust" {
-        fn parse_statement(self: &mut SePolicy, statement: Utf8CStrRef);
-        fn magisk_rules(self: &mut SePolicy);
-        fn load_rule_file(self: &mut SePolicy, filename: Utf8CStrRef);
-        fn load_rules(self: &mut SePolicy, rules: &CxxString);
         #[Self = SePolicy]
         fn xperm_to_string(perm: &Xperm) -> String;
     }
 }
 
 impl SePolicy {
-    fn load_rules(self: &mut SePolicy, rules: &CxxString) {
-        let mut cursor = Cursor::new(rules.as_bytes());
-        self.load_rules_from_reader(&mut cursor);
-    }
-
-    pub fn load_rule_file(self: &mut SePolicy, filename: &Utf8CStr) {
-        let result: LoggedResult<()> = try {
-            let file = FsPath::from(filename).open(O_RDONLY | O_CLOEXEC)?;
-            let mut reader = BufReader::new(file);
-            self.load_rules_from_reader(&mut reader);
-        };
-        result.ok();
-    }
-
-    fn load_rules_from_reader<T: BufRead>(self: &mut SePolicy, reader: &mut T) {
-        reader.foreach_lines(|line| {
-            self.parse_statement(line);
-            true
-        });
-    }
-
     fn xperm_to_string(perm: &ffi::Xperm) -> String {
         let mut s = String::new();
         if perm.reset {
